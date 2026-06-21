@@ -1,0 +1,23 @@
+# Core dependencies
+tree-sitter>=0.21.0
+tree-sitter-python>=0.21.0
+
+# Storage
+duckdb>=1.0.0
+lancedb>=0.5.0
+pyarrow>=17.0.0
+
+# LLM and embeddings
+langchain>=0.1.0
+langchain-community>=0.0.20
+langgraph>=0.0.20
+ollama>=0.1.0
+
+# Utilities
+pydantic>=2.5.0
+pydantic-settings>=2.0.0
+python-dotenv>=1.0.0
+watchdog>=4.0.0
+gitpython>=3.1.0
+rich>=13.7.0
+click>=8.1.0
