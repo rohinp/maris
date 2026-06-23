@@ -446,7 +446,7 @@ Output:
 
 ## Agent 4: Git Agent
 
-✅ **Implemented**
+✅ **Implemented** (June 2026)
 
 Purpose:
 
@@ -463,7 +463,33 @@ See [Git Agent Documentation](docs/GIT_AGENT.md) for details.
 
 ---
 
-## Agent 5: Git Archaeology Agent
+## Agent 5: Impact Analysis Agent
+
+📋 **Planned** - Post-MVP Enhancement
+
+Purpose:
+
+Analyze the impact of code changes and help developers understand what will be affected by modifications.
+
+Capabilities:
+
+* Dependency analysis (what depends on this?)
+* Test discovery (what tests cover this?)
+* Edge case detection (what should I handle?)
+* Breaking change detection (what will break?)
+* Pattern analysis (similar implementations)
+
+Integration:
+
+* Orchestrator automatically routes impact-related questions
+* Explicit CLI: `maris impact analyze --symbol "SymbolName"`
+* Implicit via ask: `maris ask "What will be affected if I change X?"`
+
+See [Impact Analysis Agent Specification](.codex/specs/impact-analysis-agent.md) for details.
+
+---
+
+## Agent 6: Git Archaeology Agent
 
 Purpose:
 

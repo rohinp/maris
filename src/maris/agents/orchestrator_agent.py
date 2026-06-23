@@ -15,7 +15,8 @@ from maris.agents.documentation_agent import (
     ModuleDocumentation,
     ArchitectureOverview,
 )
-from maris.core.models import IndexingResult, GitChangeSet
+from maris.agents.impact_analysis_agent import ImpactAnalysisAgent
+from maris.core.models import IndexingResult, GitChangeSet, ImpactAnalysisResult
 from maris.knowledge.service import RepositoryKnowledgeService
 from maris.storage.metadata_store import MetadataStore
 from maris.storage.vector_store import VectorStore
@@ -33,6 +34,7 @@ class TaskType(Enum):
     DOCUMENT = "document"  # Generate documentation
     STATUS = "status"  # Get repository status
     GIT_CHANGES = "git_changes"  # Detect Git changes
+    IMPACT_ANALYSIS = "impact_analysis"  # Analyze code impact
     UNKNOWN = "unknown"
 
 
@@ -116,6 +118,10 @@ class OrchestratorAgent:
             repo_path=repo_path,
         )
 
+        self.impact_analysis_agent = ImpactAnalysisAgent(
+            knowledge_service=knowledge_service,
+        )
+
         # Build the LangGraph workflow
         self.graph = self._build_graph()
 
@@ -166,8 +172,26 @@ class OrchestratorAgent:
             # Otherwise, infer from request
             request_lower = request.lower()
 
-            # Check for Git change detection keywords first
+            # Check for impact analysis keywords first (most specific)
             if any(
+                keyword in request_lower
+                for keyword in [
+                    "impact",
+                    "affect",
+                    "break",
+                    "breaking change",
+                    "edge case",
+                    "test coverage",
+                    "caller",
+                    "callee",
+                    "depend",
+                    "what if",
+                    "should i consider",
+                ]
+            ):
+                state["classified_task"] = TaskType.IMPACT_ANALYSIS
+            # Check for Git change detection keywords
+            elif any(
                 keyword in request_lower
                 for keyword in ["git changes", "detect changes", "what changed"]
             ):
@@ -235,6 +259,7 @@ class OrchestratorAgent:
                 TaskType.DOCUMENT: "documentation_agent",
                 TaskType.STATUS: "indexing_agent",  # Status comes from indexing agent
                 TaskType.GIT_CHANGES: "git_agent",
+                TaskType.IMPACT_ANALYSIS: "impact_analysis_agent",
                 TaskType.UNKNOWN: None,
             }
 
@@ -334,6 +359,17 @@ class OrchestratorAgent:
                     else:
                         result = self.documentation_agent.generate_architecture_overview()
 
+            elif selected_agent == "impact_analysis_agent":
+                # Perform impact analysis
+                symbol_name = state.get("symbol_name")
+                file_path = state.get("file_path")
+                analysis_type = state.get("analysis_type", "impact")
+                result = self.impact_analysis_agent.analyze_impact(
+                    symbol_name=symbol_name,
+                    file_path=file_path,
+                    analysis_type=analysis_type,
+                )
+
             state["execution_result"] = result
             state["success"] = True
             logger.info("Task executed successfully")
@@ -400,16 +436,20 @@ class OrchestratorAgent:
         file_paths: Optional[List[str]] = None,
         file_path: Optional[str] = None,
         format: str = "object",
+        symbol_name: Optional[str] = None,
+        analysis_type: Optional[str] = None,
     ) -> OrchestratorResult:
         """
         Execute a request by routing to the appropriate agent.
 
         Args:
             request: Natural language request or command
-            task_type: Optional explicit task type (question, index, document, status)
+            task_type: Optional explicit task type (question, index, document, status, impact_analysis)
             file_paths: Optional list of files for indexing
-            file_path: Optional file path for documentation
+            file_path: Optional file path for documentation or impact analysis
             format: Output format (object or markdown)
+            symbol_name: Optional symbol name for impact analysis
+            analysis_type: Optional analysis type for impact analysis
 
         Returns:
             OrchestratorResult with execution details
@@ -423,6 +463,8 @@ class OrchestratorAgent:
             "file_paths": file_paths,
             "file_path": file_path,
             "format": format,
+            "symbol_name": symbol_name,
+            "analysis_type": analysis_type,
             "classified_task": None,
             "selected_agent": None,
             "execution_result": None,
@@ -564,6 +606,35 @@ class OrchestratorAgent:
             return result.result
         else:
             raise Exception(f"Failed to perform incremental indexing: {result.error}")
+
+    def analyze_impact(
+        self,
+        symbol_name: Optional[str] = None,
+        file_path: Optional[str] = None,
+        analysis_type: str = "impact",
+    ) -> ImpactAnalysisResult:
+        """
+        Analyze the impact of changes to a symbol or file.
+
+        Args:
+            symbol_name: Name of the symbol to analyze
+            file_path: Path to the file to analyze
+            analysis_type: Type of analysis (impact, edge_cases, tests, breaking_changes)
+
+        Returns:
+            ImpactAnalysisResult with analysis details
+        """
+        result = self.execute(
+            f"Analyze impact for {symbol_name or file_path}",
+            task_type="impact_analysis",
+            symbol_name=symbol_name,
+            file_path=file_path,
+            analysis_type=analysis_type,
+        )
+        if result.success:
+            return result.result
+        else:
+            raise Exception(f"Failed to analyze impact: {result.error}")
 
 
 # Made with Bob

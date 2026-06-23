@@ -208,50 +208,6 @@ class GitChangeSet:
             "total_changes": self.total_changes,
         }
 
-    def to_llm_context(self, include_expanded: bool = True) -> str:
-        """
-        Format context for LLM consumption.
-
-        Args:
-            include_expanded: Whether to include expanded symbols
-
-        Returns:
-            Formatted string suitable for LLM input
-        """
-        lines = ["# Repository Context\n"]
-
-        if self.primary_symbols:
-            lines.append("## Primary Symbols\n")
-            for symbol in self.primary_symbols:
-                lines.append(f"### {symbol.name} ({symbol.type.value})")
-                lines.append(f"File: {symbol.file_path}:{symbol.start_line}-{symbol.end_line}")
-                if symbol.signature:
-                    lines.append(f"Signature: {symbol.signature}")
-                if symbol.docstring:
-                    lines.append(f"Documentation: {symbol.docstring}")
-                lines.append("")
-
-        if include_expanded and self.expanded_symbols:
-            lines.append("## Related Symbols\n")
-            for symbol in self.expanded_symbols:
-                lines.append(f"- {symbol.name} ({symbol.type.value}) in {symbol.file_path}")
-
-        if self.related_files:
-            lines.append("\n## Related Files\n")
-            for file_path in self.related_files:
-                lines.append(f"- {file_path}")
-
-        return "\n".join(lines)
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert context to dictionary representation."""
-        return {
-            "primary_symbols": [s.to_dict() for s in self.primary_symbols],
-            "expanded_symbols": [s.to_dict() for s in self.expanded_symbols],
-            "related_files": self.related_files,
-            "metadata": self.metadata,
-        }
-
 
 @dataclass
 class Dependency:
@@ -318,6 +274,86 @@ class IndexingResult:
             "errors": self.errors,
             "duration_seconds": self.duration_seconds,
             "success_rate": self.success_rate,
+        }
+
+
+@dataclass
+class EdgeCase:
+    """
+    Represents a detected edge case in code.
+
+    Attributes:
+        type: Type of edge case (null_check, boundary, error_path, etc.)
+        description: Human-readable description
+        location: File:line where detected
+        is_handled: Whether it's currently handled
+        suggestion: How to handle it
+        severity: Severity level (high, medium, low)
+    """
+
+    type: str
+    description: str
+    location: str
+    is_handled: bool
+    suggestion: Optional[str] = None
+    severity: str = "medium"
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert edge case to dictionary representation."""
+        return {
+            "type": self.type,
+            "description": self.description,
+            "location": self.location,
+            "is_handled": self.is_handled,
+            "suggestion": self.suggestion,
+            "severity": self.severity,
+        }
+
+
+@dataclass
+class ImpactAnalysisResult:
+    """
+    Result of impact analysis.
+
+    Attributes:
+        target_symbol: Symbol being analyzed
+        direct_callers: Symbols that directly call the target
+        indirect_callers: Symbols that indirectly call the target
+        affected_files: Files that may be affected
+        affected_tests: Test symbols that cover the target
+        edge_cases: Detected edge cases
+        breaking_changes: Potential breaking changes
+        recommendations: Actionable recommendations
+        confidence: Confidence level (high, medium, low)
+    """
+
+    target_symbol: Symbol
+    direct_callers: List[Symbol] = field(default_factory=list)
+    indirect_callers: List[Symbol] = field(default_factory=list)
+    affected_files: List[str] = field(default_factory=list)
+    affected_tests: List[Symbol] = field(default_factory=list)
+    edge_cases: List[EdgeCase] = field(default_factory=list)
+    breaking_changes: List[str] = field(default_factory=list)
+    recommendations: List[str] = field(default_factory=list)
+    confidence: str = "medium"
+
+    @property
+    def total_impact(self) -> int:
+        """Get total number of impacted symbols."""
+        return len(self.direct_callers) + len(self.indirect_callers)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert result to dictionary representation."""
+        return {
+            "target_symbol": self.target_symbol.to_dict(),
+            "direct_callers": [s.to_dict() for s in self.direct_callers],
+            "indirect_callers": [s.to_dict() for s in self.indirect_callers],
+            "affected_files": self.affected_files,
+            "affected_tests": [s.to_dict() for s in self.affected_tests],
+            "edge_cases": [e.to_dict() for e in self.edge_cases],
+            "breaking_changes": self.breaking_changes,
+            "recommendations": self.recommendations,
+            "confidence": self.confidence,
         }
 
 

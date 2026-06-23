@@ -465,6 +465,237 @@ def ask(ctx: MarisContext, question: str, max_symbols: int):
         ctx.close()
 
 
+@cli.group()
+@click.pass_obj
+def impact(ctx: MarisContext):
+    """Analyze code impact, edge cases, and test coverage.
+
+    Examples:
+        maris impact analyze --symbol "GitAgent.detect_changes"
+        maris impact analyze --file "src/maris/agents/git_agent.py"
+        maris impact edge-cases --symbol "IndexingAgent.index_files"
+        maris impact tests --symbol "QAAgent.answer_question"
+    """
+    ctx.initialize()
+
+
+@impact.command()
+@click.option("--symbol", "-s", help="Symbol name to analyze")
+@click.option(
+    "--file", "-f", "file_path", type=click.Path(exists=True), help="File path to analyze"
+)
+@click.option(
+    "--format", "-fmt", type=click.Choice(["text", "json"]), default="text", help="Output format"
+)
+@click.pass_obj
+def analyze(ctx: MarisContext, symbol: Optional[str], file_path: Optional[str], format: str):
+    """Analyze the impact of changes to a symbol or file.
+
+    Performs comprehensive impact analysis including:
+    - Direct and indirect callers
+    - Affected files and tests
+    - Edge cases and recommendations
+    - Breaking change detection
+
+    Examples:
+        maris impact analyze --symbol "GitAgent.detect_changes"
+        maris impact analyze --file "src/maris/agents/git_agent.py"
+        maris impact analyze -s "MyClass.method" --format json
+    """
+    if not symbol and not file_path:
+        console.print("[red]Error: Either --symbol or --file must be provided[/red]")
+        sys.exit(1)
+
+    try:
+        with console.status(f"[bold green]Analyzing impact..."):
+            result = ctx.orchestrator.analyze_impact(
+                symbol_name=symbol, file_path=file_path, analysis_type="impact"
+            )
+
+        if format == "json":
+            import json
+
+            console.print_json(json.dumps(result.to_dict(), indent=2))
+        else:
+            # Format as human-readable report
+            from maris.agents.impact_analysis_agent import ImpactAnalysisAgent
+
+            agent = ImpactAnalysisAgent(knowledge_service=ctx.knowledge_service)
+            report = agent.format_report_text(result)
+            console.print(Markdown(report))
+
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        sys.exit(1)
+    finally:
+        ctx.close()
+
+
+@impact.command()
+@click.option("--symbol", "-s", help="Symbol name to analyze")
+@click.option(
+    "--file", "-f", "file_path", type=click.Path(exists=True), help="File path to analyze"
+)
+@click.pass_obj
+def edge_cases(ctx: MarisContext, symbol: Optional[str], file_path: Optional[str]):
+    """Detect potential edge cases in code.
+
+    Identifies:
+    - Missing null/None checks
+    - Missing error handling
+    - Boundary conditions
+    - Unhandled exceptions
+
+    Examples:
+        maris impact edge-cases --symbol "GitAgent.detect_changes"
+        maris impact edge-cases --file "src/maris/agents/git_agent.py"
+    """
+    if not symbol and not file_path:
+        console.print("[red]Error: Either --symbol or --file must be provided[/red]")
+        sys.exit(1)
+
+    try:
+        with console.status(f"[bold green]Detecting edge cases..."):
+            result = ctx.orchestrator.analyze_impact(
+                symbol_name=symbol, file_path=file_path, analysis_type="edge_cases"
+            )
+
+        # Display edge cases
+        if result.edge_cases:
+            console.print(f"\n[bold]Edge Cases for {result.target_symbol.name}:[/bold]\n")
+
+            for i, edge_case in enumerate(result.edge_cases, 1):
+                severity_color = {"high": "red", "medium": "yellow", "low": "blue"}.get(
+                    edge_case.severity, "white"
+                )
+
+                status = "✓" if edge_case.is_handled else "⚠️"
+                console.print(
+                    f"{status} [{severity_color}]{edge_case.type.upper()}[/{severity_color}] ({edge_case.severity})"
+                )
+                console.print(f"   {edge_case.description}")
+                console.print(f"   Location: {edge_case.location}")
+                if edge_case.suggestion:
+                    console.print(f"   [dim]Suggestion: {edge_case.suggestion}[/dim]")
+                console.print()
+        else:
+            console.print(f"[green]No edge cases detected for {result.target_symbol.name}[/green]")
+
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        sys.exit(1)
+    finally:
+        ctx.close()
+
+
+@impact.command()
+@click.option("--symbol", "-s", help="Symbol name to analyze")
+@click.option(
+    "--file", "-f", "file_path", type=click.Path(exists=True), help="File path to analyze"
+)
+@click.pass_obj
+def tests(ctx: MarisContext, symbol: Optional[str], file_path: Optional[str]):
+    """Analyze test coverage for a symbol or file.
+
+    Shows:
+    - Tests that cover the symbol
+    - Test gaps and missing scenarios
+    - Recommendations for additional tests
+
+    Examples:
+        maris impact tests --symbol "GitAgent.detect_changes"
+        maris impact tests --file "src/maris/agents/git_agent.py"
+    """
+    if not symbol and not file_path:
+        console.print("[red]Error: Either --symbol or --file must be provided[/red]")
+        sys.exit(1)
+
+    try:
+        with console.status(f"[bold green]Analyzing test coverage..."):
+            result = ctx.orchestrator.analyze_impact(
+                symbol_name=symbol, file_path=file_path, analysis_type="tests"
+            )
+
+        # Display test coverage
+        console.print(f"\n[bold]Test Coverage for {result.target_symbol.name}:[/bold]\n")
+
+        if result.affected_tests:
+            console.print(f"[green]Found {len(result.affected_tests)} test(s):[/green]\n")
+            for test in result.affected_tests:
+                console.print(f"  ✓ {test.name}")
+                console.print(f"    {test.file_path}:{test.start_line}")
+                console.print()
+        else:
+            console.print("[yellow]⚠️  No tests found covering this symbol[/yellow]\n")
+
+        # Show recommendations
+        if result.recommendations:
+            console.print("[bold]Recommendations:[/bold]\n")
+            for i, rec in enumerate(result.recommendations, 1):
+                console.print(f"  {i}. {rec}")
+
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        sys.exit(1)
+    finally:
+        ctx.close()
+
+
+@impact.command()
+@click.option("--symbol", "-s", help="Symbol name to analyze")
+@click.option(
+    "--file", "-f", "file_path", type=click.Path(exists=True), help="File path to analyze"
+)
+@click.pass_obj
+def breaking_changes(ctx: MarisContext, symbol: Optional[str], file_path: Optional[str]):
+    """Detect potential breaking changes.
+
+    Identifies:
+    - Callers that would be affected
+    - Interface contract changes
+    - Public API modifications
+
+    Examples:
+        maris impact breaking-changes --symbol "GitAgent.detect_changes"
+        maris impact breaking-changes --file "src/maris/agents/git_agent.py"
+    """
+    if not symbol and not file_path:
+        console.print("[red]Error: Either --symbol or --file must be provided[/red]")
+        sys.exit(1)
+
+    try:
+        with console.status(f"[bold green]Detecting breaking changes..."):
+            result = ctx.orchestrator.analyze_impact(
+                symbol_name=symbol, file_path=file_path, analysis_type="breaking_changes"
+            )
+
+        # Display breaking changes
+        console.print(f"\n[bold]Breaking Change Analysis for {result.target_symbol.name}:[/bold]\n")
+
+        if result.breaking_changes:
+            console.print("[yellow]Potential Breaking Changes:[/yellow]\n")
+            for change in result.breaking_changes:
+                console.print(f"  ⚠️  {change}")
+            console.print()
+        else:
+            console.print("[green]No breaking changes detected[/green]\n")
+
+        # Show affected callers
+        if result.direct_callers:
+            console.print(f"[bold]Affected Callers ({len(result.direct_callers)}):[/bold]\n")
+            for caller in result.direct_callers[:10]:
+                console.print(f"  • {caller.name}")
+                console.print(f"    {caller.file_path}:{caller.start_line}")
+            if len(result.direct_callers) > 10:
+                console.print(f"\n  ... and {len(result.direct_callers) - 10} more")
+
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        sys.exit(1)
+    finally:
+        ctx.close()
+
+
 @cli.command()
 @click.argument("file_path", type=click.Path(exists=True, path_type=Path))
 @click.option("--output", "-o", type=click.Path(path_type=Path), help="Output file path")
