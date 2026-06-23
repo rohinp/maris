@@ -172,15 +172,18 @@ class LanceDBVectorStore(VectorStore):
         if self.table is None:
             raise RuntimeError("Vector store not initialized")
 
-        data = {
-            "symbol_id": [symbol_id],
-            "vector": [vector],
-            "text": [text],
-            "symbol_name": [metadata.get("symbol_name", "")],
-            "type": [metadata.get("type", "")],
-            "file": [metadata.get("file", "")],
-            "language": [metadata.get("language", "")],
-        }
+        # LanceDB requires a list of dictionaries, not a single dict
+        data = [
+            {
+                "symbol_id": symbol_id,
+                "vector": vector,
+                "text": text,
+                "symbol_name": metadata.get("symbol_name", ""),
+                "type": metadata.get("type", ""),
+                "file": metadata.get("file", ""),
+                "language": metadata.get("language", ""),
+            }
+        ]
 
         self.table.add(data)
 

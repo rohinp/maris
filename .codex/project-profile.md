@@ -14,7 +14,9 @@ Local-first repository intelligence platform using Python, Tree-sitter, Ollama, 
 #### Parsing
 - **Choice**: Tree-sitter
 - **Rationale**: Mature, multi-language, incremental parsing
-- **MVP Languages**: Scala, Java, Python, TypeScript
+- **Current Support**: Python (fully implemented)
+- **Planned Support**: Java, Scala, Kotlin, JavaScript, TypeScript, Go, Rust, Shell (Bash)
+- **Implementation**: Language-specific parsers inherit from `TreeSitterParser` base class
 
 #### LLM Runtime
 - **Choice**: Ollama
@@ -116,15 +118,19 @@ maris/
 6. Zero external API dependencies
 
 ## Open Questions
-- [ ] Specific Tree-sitter grammar versions to pin
+- [x] Specific Tree-sitter grammar versions to pin → Resolved: Using >=0.21.0 for all grammars (see multi-language-parser-support.md)
 - [ ] DuckDB schema design for symbol relationships
 - [ ] LanceDB index configuration for optimal retrieval
-- [ ] LangGraph workflow patterns for agent coordination
+- [x] LangGraph workflow patterns for agent coordination → Resolved: All agents migrated to LangGraph with explicit state management
 
 ## Decision Log
 | Date | Decision | Rationale | Scope |
 |------|----------|-----------|-------|
 | 2026-06-21 | Python 3.11+ as primary language | Rich LLM/ML ecosystem, Tree-sitter bindings | Project-wide |
+| 2026-06-21 | DuckDB for metadata, LanceDB for vectors | Embedded, local-first, performant | Storage layer |
+| 2026-06-21 | AST-based symbol chunking over generic chunking | Preserves code structure and semantics | Retrieval layer |
+| 2026-06-22 | LangGraph migration for all agents | Explicit state management, testable workflows | Agent layer |
+| 2026-06-23 | Multi-language parser support via tree-sitter | Leverage existing infrastructure, 9 languages planned | Parsing layer |
 | 2026-06-21 | LangGraph for agent orchestration | Explicit workflows over autonomous loops | Agent layer |
 | 2026-06-21 | DuckDB for metadata, LanceDB for vectors | Embedded, local-first, performant | Storage layer |
 | 2026-06-21 | AST-based symbol chunking over generic chunking | Preserves code structure and semantics | Retrieval layer |

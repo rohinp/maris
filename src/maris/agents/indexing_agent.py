@@ -1,18 +1,33 @@
-"""Indexing Agent - converts source code into structured knowledge."""
+"""Indexing Agent - LangGraph-based implementation for converting source code into structured knowledge."""
 
 import hashlib
+import logging
 import time
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
+
+from langgraph.graph import StateGraph, END
 
 from maris.core.models import IndexingResult, Symbol, SymbolType
+from maris.embeddings.ollama_embeddings import OllamaEmbeddingService
+from maris.indexing.parser_factory import ParserFactory
 from maris.storage.metadata_store import MetadataStore
 from maris.storage.vector_store import VectorStore
+
+logger = logging.getLogger(__name__)
 
 
 class IndexingAgent:
     """
-    Repository Indexing Agent.
+    LangGraph-based Repository Indexing Agent.
+
+    Uses a workflow with explicit state management:
+    1. scan_files: Find source files to index
+    2. parse_files: Parse files and extract symbols
+    3. store_symbols: Store symbols in metadata store
+    4. generate_embeddings: Create embeddings for symbols
+    5. store_embeddings: Store embeddings in vector store
+    6. assess_result: Calculate statistics and success rate
 
     Responsible for:
     - Parsing source files using Tree-sitter
@@ -27,6 +42,7 @@ class IndexingAgent:
         metadata_store: MetadataStore,
         vector_store: VectorStore,
         repo_path: str,
+        embedding_service: Optional[OllamaEmbeddingService] = None,
     ):
         """
         Initialize the indexing agent.
@@ -35,10 +51,12 @@ class IndexingAgent:
             metadata_store: Store for symbols, dependencies, and metadata
             vector_store: Store for embeddings and semantic search
             repo_path: Path to the repository root
+            embedding_service: Optional embedding service (creates default if not provided)
         """
         self.metadata_store = metadata_store
         self.vector_store = vector_store
         self.repo_path = Path(repo_path)
+        self.embedding_service = embedding_service or OllamaEmbeddingService()
 
         # Language configuration
         self.supported_languages = {
@@ -72,6 +90,350 @@ class IndexingAgent:
             "*.bundle.js",
         ]
 
+        # Build the LangGraph workflow
+        self.graph = self._build_graph()
+
+        logger.info(f"Initialized IndexingAgent with LangGraph for repo: {repo_path}")
+
+    def _build_graph(self) -> Any:
+        """Build the LangGraph workflow for indexing."""
+
+        # Use dict directly as state schema (LangGraph supports this)
+        workflow = StateGraph(dict)
+
+        # Add nodes
+        workflow.add_node("scan_files", self._scan_files)
+        workflow.add_node("parse_files", self._parse_files)
+        workflow.add_node("store_symbols", self._store_symbols)
+        workflow.add_node("generate_embeddings", self._generate_embeddings)
+        workflow.add_node("store_embeddings", self._store_embeddings)
+        workflow.add_node("assess_result", self._assess_result)
+
+        # Define edges
+        workflow.set_entry_point("scan_files")
+        workflow.add_edge("scan_files", "parse_files")
+        workflow.add_edge("parse_files", "store_symbols")
+        workflow.add_edge("store_symbols", "generate_embeddings")
+        workflow.add_edge("generate_embeddings", "store_embeddings")
+        workflow.add_edge("store_embeddings", "assess_result")
+        workflow.add_edge("assess_result", END)
+
+        return workflow.compile()
+
+    def _scan_files(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Node: Scan repository for source files to index.
+
+        Args:
+            state: Current workflow state
+
+        Returns:
+            Updated state with file paths to index
+        """
+        try:
+            logger.info("Scanning repository for source files")
+
+            # Check if specific files were provided
+            if state.get("file_paths"):
+                # Incremental indexing mode
+                files_to_index = state["file_paths"]
+                logger.info(f"Incremental mode: indexing {len(files_to_index)} specific files")
+            else:
+                # Full repository scan
+                files_to_index = self._find_source_files()
+                logger.info(f"Full scan: found {len(files_to_index)} source files")
+
+            state["files_to_index"] = files_to_index
+            state["total_files"] = len(files_to_index)
+
+        except Exception as e:
+            logger.error(f"Error scanning files: {e}")
+            state["error"] = f"Failed to scan files: {str(e)}"
+            state["files_to_index"] = []
+            state["total_files"] = 0
+
+        return state
+
+    def _parse_files(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Node: Parse files and extract symbols.
+
+        Args:
+            state: Current workflow state
+
+        Returns:
+            Updated state with extracted symbols
+        """
+        if state.get("error"):
+            return state
+
+        try:
+            logger.info("Parsing files and extracting symbols")
+
+            files_to_index = state.get("files_to_index", [])
+            all_symbols = []
+            parse_errors = []
+
+            for file_path in files_to_index:
+                try:
+                    # Detect language
+                    language = self._detect_language(file_path)
+                    if not language:
+                        parse_errors.append(f"{file_path}: Unknown language")
+                        logger.warning(f"Unknown language for {file_path}")
+                        logger.debug(f"File extension: {Path(file_path).suffix}")
+                        continue
+
+                    logger.debug(f"Detected language '{language}' for {file_path}")
+
+                    # Read file content - handle both absolute and relative paths
+                    path_obj = Path(file_path)
+                    if path_obj.is_absolute():
+                        full_path = path_obj
+                    else:
+                        full_path = self.repo_path / file_path
+
+                    logger.debug(f"Reading file: {full_path}")
+
+                    with open(full_path, "r", encoding="utf-8") as f:
+                        content = f.read()
+
+                    # Extract symbols
+                    symbols = self._extract_symbols_simple(str(file_path), content, language)
+                    all_symbols.extend(symbols)
+
+                    logger.debug(f"Extracted {len(symbols)} symbols from {file_path}")
+
+                    # Store file metadata for later
+                    line_count = len(content.splitlines())
+                    if "file_metadata" not in state:
+                        state["file_metadata"] = {}
+                    state["file_metadata"][str(file_path)] = {
+                        "language": language,
+                        "line_count": line_count,
+                        "symbol_count": len(symbols),
+                    }
+
+                except Exception as e:
+                    parse_errors.append(f"{file_path}: {str(e)}")
+                    logger.error(f"Error parsing {file_path}: {e}", exc_info=True)
+
+            state["extracted_symbols"] = all_symbols
+            state["parse_errors"] = parse_errors
+
+            logger.info(f"Extracted {len(all_symbols)} symbols from {len(files_to_index)} files")
+
+        except Exception as e:
+            logger.error(f"Error in parse_files node: {e}")
+            state["error"] = f"Failed to parse files: {str(e)}"
+            state["extracted_symbols"] = []
+            state["parse_errors"] = []
+
+        return state
+
+    def _store_symbols(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Node: Store extracted symbols in metadata store.
+
+        Args:
+            state: Current workflow state
+
+        Returns:
+            Updated state with storage confirmation
+        """
+        if state.get("error"):
+            return state
+
+        try:
+            logger.info("Storing symbols in metadata store")
+
+            symbols = state.get("extracted_symbols", [])
+
+            if symbols:
+                # Store symbols
+                self.metadata_store.insert_symbols(symbols)
+
+                # Update file metadata
+                file_metadata = state.get("file_metadata", {})
+                for file_path, metadata in file_metadata.items():
+                    self.metadata_store.upsert_file_metadata(
+                        file_path,
+                        metadata["language"],
+                        metadata["line_count"],
+                        metadata["symbol_count"],
+                    )
+
+                state["symbols_stored"] = len(symbols)
+                logger.info(f"Stored {len(symbols)} symbols")
+            else:
+                state["symbols_stored"] = 0
+                logger.warning("No symbols to store")
+
+        except Exception as e:
+            logger.error(f"Error storing symbols: {e}")
+            state["error"] = f"Failed to store symbols: {str(e)}"
+            state["symbols_stored"] = 0
+
+        return state
+
+    def _generate_embeddings(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Node: Generate embeddings for extracted symbols.
+
+        Args:
+            state: Current workflow state
+
+        Returns:
+            Updated state with generated embeddings
+        """
+        if state.get("error"):
+            return state
+
+        try:
+            logger.info("Generating embeddings for symbols")
+
+            symbols = state.get("extracted_symbols", [])
+
+            if symbols:
+                # Generate embeddings in batches
+                embeddings = self.embedding_service.embed_symbols(symbols)
+
+                state["embeddings"] = embeddings
+                state["embeddings_generated"] = len(embeddings)
+
+                logger.info(f"Generated {len(embeddings)} embeddings")
+            else:
+                state["embeddings"] = []
+                state["embeddings_generated"] = 0
+                logger.warning("No symbols to embed")
+
+        except Exception as e:
+            logger.error(f"Error generating embeddings: {e}")
+            # Don't fail the entire workflow for embedding errors
+            state["embeddings"] = []
+            state["embeddings_generated"] = 0
+            state["embedding_error"] = str(e)
+
+        return state
+
+    def _store_embeddings(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Node: Store embeddings in vector store.
+
+        Args:
+            state: Current workflow state
+
+        Returns:
+            Updated state with storage confirmation
+        """
+        if state.get("error"):
+            return state
+
+        try:
+            logger.info("Storing embeddings in vector store")
+
+            symbols = state.get("extracted_symbols", [])
+            embeddings = state.get("embeddings", [])
+
+            if symbols and embeddings and len(symbols) == len(embeddings):
+                # Store embeddings with symbol metadata
+                for symbol, embedding in zip(symbols, embeddings):
+                    # Build text representation for the embedding
+                    text_parts = [f"Symbol: {symbol.name}", f"Type: {symbol.type.value}"]
+                    if symbol.signature:
+                        text_parts.append(f"Signature: {symbol.signature}")
+                    if symbol.docstring:
+                        text_parts.append(f"Documentation: {symbol.docstring}")
+                    text = "\n".join(text_parts)
+
+                    self.vector_store.insert_embedding(
+                        symbol_id=symbol.id,
+                        vector=embedding,
+                        text=text,
+                        metadata={
+                            "symbol_name": symbol.name,
+                            "type": symbol.type.value,
+                            "file": symbol.file_path,
+                            "language": symbol.language,
+                        },
+                    )
+
+                state["embeddings_stored"] = len(embeddings)
+                logger.info(f"Stored {len(embeddings)} embeddings")
+            else:
+                state["embeddings_stored"] = 0
+                if symbols and not embeddings:
+                    logger.warning("No embeddings to store")
+
+        except Exception as e:
+            logger.error(f"Error storing embeddings: {e}")
+            # Don't fail the entire workflow for embedding storage errors
+            state["embeddings_stored"] = 0
+            state["embedding_storage_error"] = str(e)
+
+        return state
+
+    def _assess_result(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Node: Assess indexing results and calculate statistics.
+
+        Args:
+            state: Current workflow state
+
+        Returns:
+            Updated state with final statistics
+        """
+        try:
+            logger.info("Assessing indexing results")
+
+            # Calculate statistics
+            files_processed = len(state.get("file_metadata", {}))
+            symbols_extracted = len(state.get("extracted_symbols", []))
+            embeddings_generated = state.get("embeddings_generated", 0)
+
+            # Collect all errors
+            errors = []
+            if state.get("error"):
+                errors.append(state["error"])
+            errors.extend(state.get("parse_errors", []))
+            if state.get("embedding_error"):
+                errors.append(f"Embedding generation: {state['embedding_error']}")
+            if state.get("embedding_storage_error"):
+                errors.append(f"Embedding storage: {state['embedding_storage_error']}")
+
+            # Calculate success rate
+            total_files = state.get("total_files", 0)
+            if total_files > 0:
+                success_rate = files_processed / total_files
+            else:
+                success_rate = 0.0
+
+            state["final_stats"] = {
+                "files_processed": files_processed,
+                "symbols_extracted": symbols_extracted,
+                "embeddings_generated": embeddings_generated,
+                "errors": errors,
+                "success_rate": success_rate,
+            }
+
+            logger.info(
+                f"Indexing complete: {files_processed} files, "
+                f"{symbols_extracted} symbols, {embeddings_generated} embeddings, "
+                f"{len(errors)} errors"
+            )
+
+        except Exception as e:
+            logger.error(f"Error assessing results: {e}")
+            state["final_stats"] = {
+                "files_processed": 0,
+                "symbols_extracted": 0,
+                "embeddings_generated": 0,
+                "errors": [f"Assessment error: {str(e)}"],
+                "success_rate": 0.0,
+            }
+
+        return state
+
     def index_repository(self) -> IndexingResult:
         """
         Perform full repository indexing.
@@ -80,19 +442,43 @@ class IndexingAgent:
             IndexingResult with statistics and any errors
         """
         start_time = time.time()
-        result = IndexingResult()
 
-        # Find all source files
-        files_to_index = self._find_source_files()
+        logger.info("Starting full repository indexing")
 
-        # Index each file
-        for file_path in files_to_index:
-            try:
-                self._index_file(file_path, result)
-            except Exception as e:
-                result.errors.append(f"{file_path}: {str(e)}")
+        # Initialize state
+        initial_state: Dict[str, Any] = {
+            "file_paths": None,  # None means full scan
+            "files_to_index": [],
+            "total_files": 0,
+            "extracted_symbols": [],
+            "file_metadata": {},
+            "parse_errors": [],
+            "embeddings": [],
+            "embeddings_generated": 0,
+            "symbols_stored": 0,
+            "embeddings_stored": 0,
+            "error": None,
+        }
 
-        result.duration_seconds = time.time() - start_time
+        # Run the workflow
+        final_state = self.graph.invoke(initial_state)
+
+        # Build result
+        if final_state is None:
+            final_state = initial_state
+        stats = final_state.get("final_stats", {})
+        duration = time.time() - start_time
+
+        result = IndexingResult(
+            files_processed=stats.get("files_processed", 0),
+            symbols_extracted=stats.get("symbols_extracted", 0),
+            dependencies_found=0,  # TODO: Add dependency extraction in future
+            embeddings_generated=stats.get("embeddings_generated", 0),
+            errors=stats.get("errors", []),
+            duration_seconds=duration,
+        )
+
+        logger.info(f"Repository indexing completed in {duration:.2f}s")
         return result
 
     def index_files(self, file_paths: List[str]) -> IndexingResult:
@@ -106,8 +492,10 @@ class IndexingAgent:
             IndexingResult with statistics and any errors
         """
         start_time = time.time()
-        result = IndexingResult()
 
+        logger.info(f"Starting incremental indexing for {len(file_paths)} files")
+
+        # Clean up existing data for these files
         for file_path in file_paths:
             try:
                 # Delete existing symbols and dependencies for this file
@@ -116,13 +504,43 @@ class IndexingAgent:
                 if symbol_ids:
                     self.vector_store.delete_embeddings_for_symbols(symbol_ids)
                 self.metadata_store.delete_symbols_in_file(file_path)
-
-                # Re-index the file
-                self._index_file(file_path, result)
             except Exception as e:
-                result.errors.append(f"{file_path}: {str(e)}")
+                logger.error(f"Error cleaning up {file_path}: {e}")
 
-        result.duration_seconds = time.time() - start_time
+        # Initialize state
+        initial_state: Dict[str, Any] = {
+            "file_paths": file_paths,  # Specific files for incremental indexing
+            "files_to_index": [],
+            "total_files": len(file_paths),
+            "extracted_symbols": [],
+            "file_metadata": {},
+            "parse_errors": [],
+            "embeddings": [],
+            "embeddings_generated": 0,
+            "symbols_stored": 0,
+            "embeddings_stored": 0,
+            "error": None,
+        }
+
+        # Run the workflow
+        final_state = self.graph.invoke(initial_state)
+
+        # Build result
+        if final_state is None:
+            final_state = initial_state
+        stats = final_state.get("final_stats", {})
+        duration = time.time() - start_time
+
+        result = IndexingResult(
+            files_processed=stats.get("files_processed", 0),
+            symbols_extracted=stats.get("symbols_extracted", 0),
+            dependencies_found=0,  # TODO: Add dependency extraction in future
+            embeddings_generated=stats.get("embeddings_generated", 0),
+            errors=stats.get("errors", []),
+            duration_seconds=duration,
+        )
+
+        logger.info(f"Incremental indexing completed in {duration:.2f}s")
         return result
 
     def get_indexing_status(self) -> dict:
@@ -147,21 +565,23 @@ class IndexingAgent:
 
     def _find_source_files(self) -> List[str]:
         """
-        Find all source files in the repository.
+        Find all source files in the repository using ParserFactory.
 
         Returns:
             List of file paths relative to repository root
         """
         source_files = []
 
-        for lang_config in self.supported_languages.values():
-            for ext in lang_config["extensions"]:
-                for file_path in self.repo_path.rglob(f"*{ext}"):
-                    rel_path = str(file_path.relative_to(self.repo_path))
+        # Get supported extensions from ParserFactory
+        supported_extensions = ParserFactory.get_supported_extensions()
 
-                    # Check exclusion patterns
-                    if not self._is_excluded(rel_path):
-                        source_files.append(rel_path)
+        for ext in supported_extensions:
+            for file_path in self.repo_path.rglob(f"*{ext}"):
+                rel_path = str(file_path.relative_to(self.repo_path))
+
+                # Check exclusion patterns
+                if not self._is_excluded(rel_path):
+                    source_files.append(rel_path)
 
         return source_files
 
@@ -182,47 +602,9 @@ class IndexingAgent:
                 return True
         return False
 
-    def _index_file(self, file_path: str, result: IndexingResult) -> None:
-        """
-        Index a single file.
-
-        Args:
-            file_path: Relative path from repository root
-            result: IndexingResult to update with statistics
-        """
-        # Detect language
-        language = self._detect_language(file_path)
-        if not language:
-            result.errors.append(f"{file_path}: Unknown language")
-            return
-
-        # Read file content
-        full_path = self.repo_path / file_path
-        try:
-            with open(full_path, "r", encoding="utf-8") as f:
-                content = f.read()
-        except Exception as e:
-            result.errors.append(f"{file_path}: Failed to read file - {str(e)}")
-            return
-
-        # For MVP, create a simple symbol extraction
-        # In production, this would use Tree-sitter parsing
-        symbols = self._extract_symbols_simple(file_path, content, language)
-
-        if symbols:
-            # Store symbols
-            self.metadata_store.insert_symbols(symbols)
-            result.symbols_extracted += len(symbols)
-
-            # Update file metadata
-            line_count = len(content.splitlines())
-            self.metadata_store.upsert_file_metadata(file_path, language, line_count, len(symbols))
-
-        result.files_processed += 1
-
     def _detect_language(self, file_path: str) -> Optional[str]:
         """
-        Detect programming language from file extension.
+        Detect programming language from file extension using ParserFactory.
 
         Args:
             file_path: File path
@@ -230,20 +612,50 @@ class IndexingAgent:
         Returns:
             Language name or None if not supported
         """
-        ext = Path(file_path).suffix
-
-        for lang, config in self.supported_languages.items():
-            if ext in config["extensions"]:
-                return lang
-
-        return None
+        return ParserFactory.get_language_name(file_path)
 
     def _extract_symbols_simple(self, file_path: str, content: str, language: str) -> List[Symbol]:
         """
-        Simple symbol extraction (placeholder for Tree-sitter implementation).
+        Extract symbols using Tree-sitter parsers via ParserFactory.
 
-        This is a simplified version for MVP. In production, this would use
-        Tree-sitter to parse the AST and extract symbols accurately.
+        Args:
+            file_path: Relative file path
+            content: File content
+            language: Programming language (not used, detection is by extension)
+
+        Returns:
+            List of extracted symbols
+        """
+        # Get appropriate parser from factory
+        parser = ParserFactory.get_parser(file_path)
+
+        if not parser:
+            # Parser not implemented yet, return empty list
+            logger.warning(f"No parser available for {file_path}, skipping symbol extraction")
+            return []
+
+        try:
+            # Parse the file
+            tree = parser.parse_file(file_path, content)
+            if not tree:
+                logger.error(f"Failed to parse {file_path}")
+                return []
+
+            # Extract symbols using the parser
+            symbols = parser.extract_symbols(tree, file_path, content)
+            return symbols
+
+        except Exception as e:
+            logger.error(f"Error extracting symbols from {file_path}: {e}")
+            return []
+
+    def _extract_symbols_fallback(
+        self, file_path: str, content: str, language: str
+    ) -> List[Symbol]:
+        """
+        Fallback symbol extraction using simple pattern matching.
+
+        Used when Tree-sitter parser is not available for a language.
 
         Args:
             file_path: Relative file path
@@ -257,7 +669,6 @@ class IndexingAgent:
         lines = content.splitlines()
 
         # Simple pattern matching for demonstration
-        # In production, use Tree-sitter AST parsing
         for i, line in enumerate(lines, start=1):
             line_stripped = line.strip()
 
@@ -273,7 +684,7 @@ class IndexingAgent:
                         file_path=file_path,
                         language=language,
                         start_line=i,
-                        end_line=i,  # Simplified - would need AST for accurate end line
+                        end_line=i,
                     )
                 )
 

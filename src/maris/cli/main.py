@@ -1,5 +1,6 @@
 """MARIS CLI - Command-line interface for repository intelligence."""
 
+import os
 import sys
 from pathlib import Path
 from typing import Optional
@@ -12,14 +13,11 @@ from rich.markdown import Markdown
 
 from maris.config import MarisConfig, load_config
 from maris.core.models import Symbol
-from maris.indexing.python_parser import PythonParser
 from maris.storage.metadata_store import DuckDBMetadataStore
 from maris.storage.vector_store import LanceDBVectorStore
 from maris.embeddings.ollama_embeddings import OllamaEmbeddingService
 from maris.knowledge.repository_knowledge_impl import RepositoryKnowledgeImpl
-from maris.agents.indexing_agent import IndexingAgent
-from maris.agents.documentation_agent import DocumentationAgent
-from maris.agents.qa_agent import QAAgent
+from maris.agents.orchestrator_agent import OrchestratorAgent, TaskType
 from maris.utils.validation import validate_with_helpful_errors
 
 console = Console()
@@ -37,7 +35,7 @@ class MarisContext:
         self.vector_store: Optional[LanceDBVectorStore] = None
         self.embedding_service: Optional[OllamaEmbeddingService] = None
         self.knowledge_service: Optional[RepositoryKnowledgeImpl] = None
-        self.parser: Optional[PythonParser] = None
+        self.orchestrator: Optional[OrchestratorAgent] = None
 
     def initialize(self, auto_pull: bool = False):
         """
@@ -99,8 +97,15 @@ class MarisContext:
                 embedding_service=self.embedding_service,
             )
 
-            # Initialize parser
-            self.parser = PythonParser()
+            # Initialize orchestrator agent
+            self.orchestrator = OrchestratorAgent(
+                knowledge_service=self.knowledge_service,
+                metadata_store=self.metadata_store,
+                vector_store=self.vector_store,
+                repo_path=str(Path.cwd()),  # Use current directory as repo path
+                qa_model=self.config.qa_model,
+                embedding_model=self.config.embedding_model,
+            )
 
         except Exception as e:
             console.print(f"[red]Error initializing MARIS: {e}[/red]")
@@ -139,9 +144,18 @@ def cli(ctx, config_file: Optional[Path], skip_validation: bool):
     4. Default values
 
     Use --config-file to specify a custom .env file.
+
+    By default, MARIS uses project-specific storage (.maris/ in current directory).
+    Set MARIS_DATA_DIR environment variable to use a different location.
     """
     # Load configuration
     config = load_config(config_file)
+
+    # Use project-specific storage by default (unless explicitly configured)
+    if "MARIS_DATA_DIR" not in os.environ:
+        # Use .maris in current working directory
+        config.data_dir = Path.cwd() / ".maris"
+
     ctx.obj = MarisContext(config, skip_validation=skip_validation)
 
 
@@ -165,74 +179,63 @@ def index(ctx: MarisContext, path: Path, recursive: bool, auto_pull: bool):
         files_to_index = []
 
         if path.is_file():
-            if path.suffix == ".py":
-                files_to_index.append(path)
-            else:
-                console.print(f"[yellow]Skipping non-Python file: {path}[/yellow]")
+            files_to_index.append(str(path))
         elif path.is_dir():
+            # Use orchestrator to find all supported files
+            from maris.indexing import ParserFactory
+
+            supported_extensions = ParserFactory.get_implemented_extensions()
+
+            console.print(
+                f"[dim]Scanning for files with extensions: {', '.join(supported_extensions)}[/dim]"
+            )
+            console.print(f"[dim]Recursive: {recursive}[/dim]")
+
             if recursive:
-                files_to_index.extend(path.rglob("*.py"))
+                for ext in supported_extensions:
+                    found = list(path.rglob(f"*{ext}"))
+                    if found:
+                        console.print(f"[dim]Found {len(found)} {ext} files[/dim]")
+                    files_to_index.extend(str(f) for f in found)
             else:
-                files_to_index.extend(path.glob("*.py"))
+                for ext in supported_extensions:
+                    found = list(path.glob(f"*{ext}"))
+                    if found:
+                        console.print(f"[dim]Found {len(found)} {ext} files[/dim]")
+                    files_to_index.extend(str(f) for f in found)
 
         if not files_to_index:
-            console.print("[yellow]No Python files found to index[/yellow]")
+            console.print("[yellow]No supported files found to index[/yellow]")
+            console.print(f"[dim]Searched in: {path.absolute()}[/dim]")
+            console.print(f"[dim]Recursive: {recursive}[/dim]")
+            console.print("[yellow]Tip: Use --recursive or -r to search subdirectories[/yellow]")
             return
 
         console.print(f"[cyan]Indexing {len(files_to_index)} file(s)...[/cyan]")
 
-        # Index each file
-        with console.status("[bold green]Indexing files...") as status:
-            for i, file_path in enumerate(files_to_index, 1):
-                status.update(
-                    f"[bold green]Indexing {file_path.name} ({i}/{len(files_to_index)})..."
+        # Use orchestrator to index files
+        with console.status("[bold green]Indexing files..."):
+            result = ctx.orchestrator.execute(
+                request="Index files",
+                task_type="index",
+                file_paths=files_to_index,
+            )
+
+        if result.success:
+            indexing_result = result.result
+            console.print(f"\n[bold green]✓ Indexing complete![/bold green]")
+            console.print(f"  Files processed: {indexing_result.files_processed}")
+            console.print(f"  Symbols extracted: {indexing_result.symbols_extracted}")
+            console.print(f"  Embeddings generated: {indexing_result.embeddings_generated}")
+
+            if indexing_result.errors:
+                console.print(
+                    f"\n[yellow]Errors encountered: {len(indexing_result.errors)}[/yellow]"
                 )
-                try:
-                    # Read file content
-                    content = file_path.read_text()
-
-                    # Parse file
-                    tree = ctx.parser.parse_file(str(file_path), content)
-                    if not tree:
-                        console.print(f"[red]✗[/red] {file_path}: Failed to parse")
-                        continue
-
-                    # Extract symbols
-                    symbols = ctx.parser.extract_symbols(tree, str(file_path), content)
-
-                    # Extract dependencies
-                    dependencies = ctx.parser.extract_dependencies(
-                        tree, symbols, str(file_path), content
-                    )
-
-                    # Store symbols
-                    ctx.metadata_store.insert_symbols(symbols)
-
-                    # Store dependencies
-                    for dep in dependencies:
-                        ctx.metadata_store.insert_dependency(dep)
-
-                    # Generate and store embeddings
-                    for symbol in symbols:
-                        embedding = ctx.embedding_service.embed_symbol(symbol)
-                        metadata = {
-                            "symbol_name": symbol.name,
-                            "type": symbol.type.value,
-                            "file": symbol.file_path,
-                            "language": symbol.language,
-                        }
-                        ctx.vector_store.insert_embedding(
-                            symbol.id,
-                            embedding,
-                            f"{symbol.name} {symbol.signature or ''}",
-                            metadata,
-                        )
-
-                    console.print(f"[green]✓[/green] {file_path} ({len(symbols)} symbols)")
-                except Exception as e:
-                    console.print(f"[red]✗[/red] {file_path}: {e}")
-
-        console.print(f"\n[bold green]✓ Indexed {len(files_to_index)} file(s)[/bold green]")
+                for error in indexing_result.errors[:5]:  # Show first 5 errors
+                    console.print(f"  • {error}")
+        else:
+            console.print(f"[red]✗ Indexing failed: {result.error}[/red]")
 
     finally:
         ctx.close()
@@ -286,40 +289,39 @@ def explain(ctx: MarisContext, symbol_name: str):
     ctx.initialize()
 
     try:
-        qa_agent = QAAgent(
-            knowledge_service=ctx.knowledge_service,
-            model=ctx.config.qa_model,
-            host=(
-                ctx.config.ollama_host
-                if ctx.config.ollama_host != "http://localhost:11434"
-                else None
-            ),
-        )
-
         with console.status(f"[bold green]Analyzing {symbol_name}..."):
-            answer = qa_agent.explain_symbol(symbol_name)
+            result = ctx.orchestrator.execute(
+                request=f"Explain the symbol {symbol_name}",
+                task_type="question",
+            )
 
-        # Display answer
-        panel = Panel(
-            Markdown(answer.answer),
-            title=f"[bold cyan]Explanation: {symbol_name}[/bold cyan]",
-            border_style="cyan",
-        )
-        console.print(panel)
+        if result.success:
+            answer = result.result
+            # Display answer
+            panel = Panel(
+                Markdown(answer.answer),
+                title=f"[bold cyan]Explanation: {symbol_name}[/bold cyan]",
+                border_style="cyan",
+            )
+            console.print(panel)
 
-        # Display confidence
-        confidence_color = (
-            "green"
-            if answer.confidence == "high"
-            else "yellow" if answer.confidence == "medium" else "red"
-        )
-        console.print(f"\n[{confidence_color}]Confidence: {answer.confidence}[/{confidence_color}]")
+            # Display confidence
+            confidence_color = (
+                "green"
+                if answer.confidence == "high"
+                else "yellow" if answer.confidence == "medium" else "red"
+            )
+            console.print(
+                f"\n[{confidence_color}]Confidence: {answer.confidence}[/{confidence_color}]"
+            )
 
-        # Display sources
-        if answer.relevant_symbols:
-            console.print("\n[bold]Relevant Symbols:[/bold]")
-            for symbol in answer.relevant_symbols[:5]:
-                console.print(f"  • {symbol.name} ({symbol.type.value}) in {symbol.file_path}")
+            # Display sources
+            if answer.relevant_symbols:
+                console.print("\n[bold]Relevant Symbols:[/bold]")
+                for symbol in answer.relevant_symbols[:5]:
+                    console.print(f"  • {symbol.name} ({symbol.type.value}) in {symbol.file_path}")
+        else:
+            console.print(f"[red]✗ Failed to explain symbol: {result.error}[/red]")
 
     finally:
         ctx.close()
@@ -339,38 +341,37 @@ def ask(ctx: MarisContext, question: str, max_symbols: int):
     ctx.initialize()
 
     try:
-        qa_agent = QAAgent(
-            knowledge_service=ctx.knowledge_service,
-            model=ctx.config.qa_model,
-            host=(
-                ctx.config.ollama_host
-                if ctx.config.ollama_host != "http://localhost:11434"
-                else None
-            ),
-        )
-
         with console.status("[bold green]Thinking..."):
-            answer = qa_agent.answer_question(question, max_symbols=max_symbols)
+            result = ctx.orchestrator.execute(
+                request=question,
+                task_type="question",
+            )
 
-        # Display answer
-        panel = Panel(
-            Markdown(answer.answer), title="[bold cyan]Answer[/bold cyan]", border_style="cyan"
-        )
-        console.print(panel)
+        if result.success:
+            answer = result.result
+            # Display answer
+            panel = Panel(
+                Markdown(answer.answer), title="[bold cyan]Answer[/bold cyan]", border_style="cyan"
+            )
+            console.print(panel)
 
-        # Display confidence
-        confidence_color = (
-            "green"
-            if answer.confidence == "high"
-            else "yellow" if answer.confidence == "medium" else "red"
-        )
-        console.print(f"\n[{confidence_color}]Confidence: {answer.confidence}[/{confidence_color}]")
+            # Display confidence
+            confidence_color = (
+                "green"
+                if answer.confidence == "high"
+                else "yellow" if answer.confidence == "medium" else "red"
+            )
+            console.print(
+                f"\n[{confidence_color}]Confidence: {answer.confidence}[/{confidence_color}]"
+            )
 
-        # Display sources
-        if answer.relevant_symbols:
-            console.print("\n[bold]Relevant Symbols:[/bold]")
-            for symbol in answer.relevant_symbols[:5]:
-                console.print(f"  • {symbol.name} ({symbol.type.value}) in {symbol.file_path}")
+            # Display sources
+            if answer.relevant_symbols:
+                console.print("\n[bold]Relevant Symbols:[/bold]")
+                for symbol in answer.relevant_symbols[:5]:
+                    console.print(f"  • {symbol.name} ({symbol.type.value}) in {symbol.file_path}")
+        else:
+            console.print(f"[red]✗ Failed to answer question: {result.error}[/red]")
 
     finally:
         ctx.close()
@@ -390,17 +391,24 @@ def document(ctx: MarisContext, file_path: Path, output: Optional[Path]):
     ctx.initialize()
 
     try:
-        doc_agent = DocumentationAgent(knowledge_service=ctx.knowledge_service)
-
         with console.status(f"[bold green]Generating documentation for {file_path.name}..."):
-            markdown = doc_agent.generate_markdown_documentation(str(file_path))
+            result = ctx.orchestrator.execute(
+                request=f"Generate documentation for {file_path}",
+                task_type="document",
+                file_path=str(file_path),
+                format="markdown",
+            )
 
-        if output:
-            output.parent.mkdir(parents=True, exist_ok=True)
-            output.write_text(markdown)
-            console.print(f"[green]✓ Documentation written to {output}[/green]")
+        if result.success:
+            markdown = result.result
+            if output:
+                output.parent.mkdir(parents=True, exist_ok=True)
+                output.write_text(markdown)
+                console.print(f"[green]✓ Documentation written to {output}[/green]")
+            else:
+                console.print(Markdown(markdown))
         else:
-            console.print(Markdown(markdown))
+            console.print(f"[red]✗ Failed to generate documentation: {result.error}[/red]")
 
     finally:
         ctx.close()
@@ -486,16 +494,6 @@ def interactive(ctx: MarisContext):
     ctx.initialize()
 
     try:
-        qa_agent = QAAgent(
-            knowledge_service=ctx.knowledge_service,
-            model=ctx.config.qa_model,
-            host=(
-                ctx.config.ollama_host
-                if ctx.config.ollama_host != "http://localhost:11434"
-                else None
-            ),
-        )
-
         console.print(
             Panel(
                 "[bold cyan]MARIS Interactive Q&A[/bold cyan]\n\n"
@@ -517,18 +515,25 @@ def interactive(ctx: MarisContext):
                     continue
 
                 with console.status("[bold green]Thinking..."):
-                    answer = qa_agent.answer_question(question)
+                    result = ctx.orchestrator.execute(
+                        request=question,
+                        task_type="question",
+                    )
 
-                console.print(f"\n[bold green]Answer:[/bold green]\n{answer.answer}")
+                if result.success:
+                    answer = result.result
+                    console.print(f"\n[bold green]Answer:[/bold green]\n{answer.answer}")
 
-                confidence_color = (
-                    "green"
-                    if answer.confidence == "high"
-                    else "yellow" if answer.confidence == "medium" else "red"
-                )
-                console.print(
-                    f"\n[{confidence_color}]Confidence: {answer.confidence}[/{confidence_color}]"
-                )
+                    confidence_color = (
+                        "green"
+                        if answer.confidence == "high"
+                        else "yellow" if answer.confidence == "medium" else "red"
+                    )
+                    console.print(
+                        f"\n[{confidence_color}]Confidence: {answer.confidence}[/{confidence_color}]"
+                    )
+                else:
+                    console.print(f"[red]Error: {result.error}[/red]")
 
             except KeyboardInterrupt:
                 console.print("\n[yellow]Goodbye![/yellow]")
