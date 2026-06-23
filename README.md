@@ -109,10 +109,11 @@ Repository Knowledge Layer
 
 Agents
 
-    ├── Documentation Agent
-    ├── Q&A Agent
-    ├── Impact Analysis Agent
-    ├── Git Archaeology Agent
+    ├── Documentation Agent ✅
+    ├── Q&A Agent ✅
+    ├── Git Agent ✅
+    ├── Impact Analysis Agent ✅
+    ├── Git Archaeology Agent (Planned)
     └── Future Agents
 ```
 
@@ -136,7 +137,6 @@ Supported languages for MVP:
 * Scala
 * Java
 * Python
-* TypeScript
 
 Future:
 
@@ -145,6 +145,7 @@ Future:
 * Kotlin
 * C++
 * C#
+* TypeScript
 
 ---
 
@@ -415,35 +416,6 @@ Not arbitrary chunks.
 
 # Future Roadmap
 
-## Agent 4: Impact Analysis Agent
-
-Purpose:
-
-Determine what may be affected by a code change.
-
-Example:
-
-Developer modifies:
-
-```scala
-Reducer.reduce()
-```
-
-Agent performs:
-
-* caller traversal
-* callee traversal
-* dependency analysis
-* test discovery
-
-Output:
-
-* impacted modules
-* potentially affected tests
-* possible edge cases
-
----
-
 ## Agent 4: Git Agent
 
 ✅ **Implemented** (June 2026)
@@ -465,7 +437,7 @@ See [Git Agent Documentation](docs/GIT_AGENT.md) for details.
 
 ## Agent 5: Impact Analysis Agent
 
-📋 **Planned** - Post-MVP Enhancement
+✅ **Implemented** (June 2026)
 
 Purpose:
 
@@ -473,19 +445,35 @@ Analyze the impact of code changes and help developers understand what will be a
 
 Capabilities:
 
-* Dependency analysis (what depends on this?)
-* Test discovery (what tests cover this?)
-* Edge case detection (what should I handle?)
-* Breaking change detection (what will break?)
-* Pattern analysis (similar implementations)
+* **Dependency analysis**: Find direct and indirect callers, callees, and affected files
+* **Test discovery**: Identify tests covering symbols and suggest missing scenarios
+* **Edge case detection**: Detect missing null checks, error handling, and boundary conditions
+* **Breaking change detection**: Identify potential breaking changes and affected callers
+* **Recommendations**: Generate actionable recommendations based on analysis
 
 Integration:
 
-* Orchestrator automatically routes impact-related questions
-* Explicit CLI: `maris impact analyze --symbol "SymbolName"`
-* Implicit via ask: `maris ask "What will be affected if I change X?"`
+* **Auto-routing**: Orchestrator automatically routes impact-related questions (keywords: "impact", "affect", "break", "edge case", "test coverage")
+* **Explicit CLI**:
+  - `maris impact analyze --symbol "SymbolName"`
+  - `maris impact edge-cases --file "path/to/file.py"`
+  - `maris impact tests --symbol "SymbolName"`
+  - `maris impact breaking-changes --symbol "SymbolName"`
+* **Implicit via ask**: `maris ask "What will be affected if I change X?"`
 
-See [Impact Analysis Agent Specification](.codex/specs/impact-analysis-agent.md) for details.
+Example:
+
+```bash
+# Auto-routed to Impact Analysis Agent
+maris ask "What will be affected if I change GitAgent?"
+
+# Explicit impact analysis
+maris impact analyze --symbol "GitAgent.detect_changes"
+maris impact edge-cases --file "src/maris/agents/git_agent.py"
+maris impact tests --symbol "QAAgent.answer_question"
+```
+
+See [Impact Analysis Agent Documentation](docs/IMPACT_ANALYSIS_AGENT.md) for details.
 
 ---
 
