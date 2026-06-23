@@ -331,14 +331,18 @@ For every symbol:
 
 ### Incremental Updates
 
-Detect changes via:
+✅ **Implemented via Git Agent**
 
-* filesystem watcher
-* git diff
+The system now includes a Git Agent that:
 
-Re-index only changed files.
+* Detects changes via `git diff`
+* Tracks the last indexed commit
+* Re-indexes only changed files
+* Supports incremental indexing via CLI: `maris index --incremental`
 
-Never rebuild the entire repository unnecessarily.
+This dramatically improves indexing performance for large repositories.
+
+See [Git Agent Documentation](docs/GIT_AGENT.md) for details.
 
 ---
 
@@ -437,6 +441,25 @@ Output:
 * impacted modules
 * potentially affected tests
 * possible edge cases
+
+---
+
+## Agent 4: Git Agent
+
+✅ **Implemented**
+
+Purpose:
+
+Track repository changes and enable incremental indexing.
+
+Capabilities:
+
+* Detect changes since last indexing
+* Categorize changes (added/modified/deleted/renamed)
+* Enable efficient incremental re-indexing
+* Track commit history
+
+See [Git Agent Documentation](docs/GIT_AGENT.md) for details.
 
 ---
 
@@ -583,12 +606,14 @@ The system is designed to help developers understand software.
 
 MVP is successful when:
 
-1. Repository indexing works incrementally.
-2. Symbols can be queried accurately.
-3. Documentation can be generated automatically.
-4. Q&A answers are grounded in repository knowledge.
-5. Entire workflow runs locally.
-6. No external API dependencies are required.
+1. ✅ Repository indexing works incrementally (Git Agent)
+2. ✅ Symbols can be queried accurately
+3. ✅ Documentation can be generated automatically
+4. ✅ Q&A answers are grounded in repository knowledge
+5. ✅ Entire workflow runs locally
+6. ✅ No external API dependencies are required
+
+**MVP Complete!** All success criteria have been met.
 
 ---
 

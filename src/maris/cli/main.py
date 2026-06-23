@@ -160,21 +160,109 @@ def cli(ctx, config_file: Optional[Path], skip_validation: bool):
 
 
 @cli.command()
-@click.argument("path", type=click.Path(exists=True, path_type=Path))
+@click.argument("path", type=click.Path(exists=True, path_type=Path), required=False)
 @click.option("--recursive", "-r", is_flag=True, help="Index directory recursively")
+@click.option(
+    "--incremental",
+    "-i",
+    is_flag=True,
+    help="Only index files changed since last indexing (requires Git)",
+)
 @click.option("--auto-pull", is_flag=True, help="Automatically pull missing Ollama models")
 @click.pass_obj
-def index(ctx: MarisContext, path: Path, recursive: bool, auto_pull: bool):
+def index(
+    ctx: MarisContext, path: Optional[Path], recursive: bool, incremental: bool, auto_pull: bool
+):
     """Index a file or directory.
 
     Examples:
         maris index src/main.py
         maris index src/ --recursive
         maris index src/ -r --auto-pull
+        maris index --incremental  # Index only changed files
+        maris index -i  # Short form
     """
     ctx.initialize(auto_pull=auto_pull)
 
     try:
+        # Handle incremental indexing
+        if incremental:
+            if path:
+                console.print(
+                    "[yellow]Warning: --incremental flag ignores the path argument[/yellow]"
+                )
+
+            console.print("[cyan]Detecting changes since last indexing...[/cyan]")
+
+            with console.status("[bold green]Detecting Git changes..."):
+                result = ctx.orchestrator.execute(
+                    request="Detect Git changes",
+                    task_type="git_changes",
+                )
+
+            if not result.success:
+                console.print(f"[red]✗ Failed to detect changes: {result.error}[/red]")
+                console.print("[yellow]Tip: Make sure you're in a Git repository[/yellow]")
+                return
+
+            changeset = result.result
+
+            if not changeset.has_changes:
+                console.print("[green]✓ No changes detected since last indexing[/green]")
+                console.print(f"[dim]Last indexed commit: {changeset.last_commit or 'N/A'}[/dim]")
+                console.print(f"[dim]Current commit: {changeset.current_commit}[/dim]")
+                return
+
+            # Display changes
+            console.print(f"\n[bold]Changes detected:[/bold]")
+            if changeset.added_files:
+                console.print(f"  [green]Added: {len(changeset.added_files)} files[/green]")
+            if changeset.modified_files:
+                console.print(f"  [yellow]Modified: {len(changeset.modified_files)} files[/yellow]")
+            if changeset.deleted_files:
+                console.print(f"  [red]Deleted: {len(changeset.deleted_files)} files[/red]")
+            if changeset.renamed_files:
+                console.print(f"  [blue]Renamed: {len(changeset.renamed_files)} files[/blue]")
+
+            console.print(
+                f"\n[cyan]Performing incremental indexing of {changeset.total_changes} changed files...[/cyan]"
+            )
+
+            with console.status("[bold green]Indexing changed files..."):
+                result = ctx.orchestrator.execute(
+                    request="Incremental index",
+                    task_type="incremental_index",
+                )
+
+            if result.success:
+                indexing_result = result.result
+                console.print(f"\n[bold green]✓ Incremental indexing complete![/bold green]")
+                console.print(f"  Files processed: {indexing_result.files_processed}")
+                console.print(f"  Symbols extracted: {indexing_result.symbols_extracted}")
+                console.print(f"  Embeddings generated: {indexing_result.embeddings_generated}")
+                console.print(f"  Duration: {indexing_result.duration_seconds:.2f}s")
+
+                if indexing_result.errors:
+                    console.print(
+                        f"\n[yellow]Errors encountered: {len(indexing_result.errors)}[/yellow]"
+                    )
+                    for error in indexing_result.errors[:5]:
+                        console.print(f"  • {error}")
+            else:
+                console.print(f"[red]✗ Incremental indexing failed: {result.error}[/red]")
+
+            return
+
+        # Regular indexing (non-incremental)
+        if not path:
+            console.print(
+                "[red]Error: PATH argument is required for non-incremental indexing[/red]"
+            )
+            console.print(
+                "[yellow]Tip: Use --incremental flag to index only changed files[/yellow]"
+            )
+            return
+
         # Collect files to index
         files_to_index = []
 

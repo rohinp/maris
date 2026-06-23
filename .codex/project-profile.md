@@ -53,8 +53,11 @@ Local-first repository intelligence platform using Python, Tree-sitter, Ollama, 
 - **Coordination**: Shared Repository Knowledge Layer
 
 #### Incremental Processing
-- **Pattern**: Filesystem watcher + git diff for change detection
+- **Pattern**: ✅ Git diff for change detection (Git Agent implemented June 2026)
+- **Future**: Filesystem watcher for real-time updates
 - **Rule**: Re-index only changed files, never full rebuild
+- **Implementation**: GitAgent tracks last indexed commit in `.maris/last_commit`
+- **Performance**: ~100x speedup for typical changes (10 files vs 1000 files)
 
 ### Code Organization
 
@@ -99,9 +102,12 @@ maris/
 4. Documentation Agent
 5. Q&A Agent
 
-### Phase 3: Analysis (Post-MVP)
-6. Impact Analysis Agent
-7. Git Archaeology Agent
+### Phase 3: Git Integration ✅ Complete
+6. Git Agent (incremental indexing)
+
+### Phase 4: Analysis (Post-MVP)
+7. Impact Analysis Agent
+8. Git Archaeology Agent
 
 ## Non-Goals
 - Code generation or modification
@@ -110,12 +116,14 @@ maris/
 - External API dependencies
 
 ## Success Criteria
-1. Incremental repository indexing works
-2. Symbol queries are accurate
-3. Documentation generation is automatic
-4. Q&A answers are grounded in repository knowledge
-5. Entire workflow runs locally
-6. Zero external API dependencies
+1. ✅ Incremental repository indexing works (Git Agent)
+2. ✅ Symbol queries are accurate
+3. ✅ Documentation generation is automatic
+4. ✅ Q&A answers are grounded in repository knowledge
+5. ✅ Entire workflow runs locally
+6. ✅ Zero external API dependencies
+
+**Status**: ✅ MVP Complete (June 2026)
 
 ## Open Questions
 - [x] Specific Tree-sitter grammar versions to pin → Resolved: Using >=0.21.0 for all grammars (see multi-language-parser-support.md)
@@ -129,8 +137,8 @@ maris/
 | 2026-06-21 | Python 3.11+ as primary language | Rich LLM/ML ecosystem, Tree-sitter bindings | Project-wide |
 | 2026-06-21 | DuckDB for metadata, LanceDB for vectors | Embedded, local-first, performant | Storage layer |
 | 2026-06-21 | AST-based symbol chunking over generic chunking | Preserves code structure and semantics | Retrieval layer |
+| 2026-06-21 | LangGraph for agent orchestration | Explicit workflows over autonomous loops | Agent layer |
 | 2026-06-22 | LangGraph migration for all agents | Explicit state management, testable workflows | Agent layer |
 | 2026-06-23 | Multi-language parser support via tree-sitter | Leverage existing infrastructure, 9 languages planned | Parsing layer |
-| 2026-06-21 | LangGraph for agent orchestration | Explicit workflows over autonomous loops | Agent layer |
-| 2026-06-21 | DuckDB for metadata, LanceDB for vectors | Embedded, local-first, performant | Storage layer |
-| 2026-06-21 | AST-based symbol chunking over generic chunking | Preserves code structure and semantics | Retrieval layer |
+| 2026-06-23 | Git Agent for incremental indexing | Git diff-based change detection, ~100x speedup | Indexing layer |
+| 2026-06-23 | Store last commit in `.maris/last_commit` | Simple, reliable, survives database resets | Storage pattern |

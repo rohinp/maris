@@ -9,12 +9,13 @@ from langgraph.graph import StateGraph, END
 
 from maris.agents.qa_agent import QAAgent, Answer
 from maris.agents.indexing_agent import IndexingAgent
+from maris.agents.git_agent import GitAgent
 from maris.agents.documentation_agent import (
     DocumentationAgent,
     ModuleDocumentation,
     ArchitectureOverview,
 )
-from maris.core.models import IndexingResult
+from maris.core.models import IndexingResult, GitChangeSet
 from maris.knowledge.service import RepositoryKnowledgeService
 from maris.storage.metadata_store import MetadataStore
 from maris.storage.vector_store import VectorStore
@@ -28,8 +29,10 @@ class TaskType(Enum):
 
     QUESTION = "question"  # Answer questions about code
     INDEX = "index"  # Index repository or files
+    INCREMENTAL_INDEX = "incremental_index"  # Incremental indexing based on Git changes
     DOCUMENT = "document"  # Generate documentation
     STATUS = "status"  # Get repository status
+    GIT_CHANGES = "git_changes"  # Detect Git changes
     UNKNOWN = "unknown"
 
 
@@ -109,6 +112,10 @@ class OrchestratorAgent:
             knowledge_service=knowledge_service,
         )
 
+        self.git_agent = GitAgent(
+            repo_path=repo_path,
+        )
+
         # Build the LangGraph workflow
         self.graph = self._build_graph()
 
@@ -159,8 +166,20 @@ class OrchestratorAgent:
             # Otherwise, infer from request
             request_lower = request.lower()
 
-            # Check for status keywords first (more specific than "index")
-            if any(keyword in request_lower for keyword in ["status", "stats", "statistics"]):
+            # Check for Git change detection keywords first
+            if any(
+                keyword in request_lower
+                for keyword in ["git changes", "detect changes", "what changed"]
+            ):
+                state["classified_task"] = TaskType.GIT_CHANGES
+            # Check for incremental indexing keywords
+            elif any(
+                keyword in request_lower
+                for keyword in ["incremental", "update index", "reindex changes"]
+            ):
+                state["classified_task"] = TaskType.INCREMENTAL_INDEX
+            # Check for status keywords (more specific than "index")
+            elif any(keyword in request_lower for keyword in ["status", "stats", "statistics"]):
                 state["classified_task"] = TaskType.STATUS
             # Check for indexing keywords
             elif any(keyword in request_lower for keyword in ["index", "scan", "parse", "extract"]):
@@ -212,8 +231,10 @@ class OrchestratorAgent:
             agent_mapping = {
                 TaskType.QUESTION: "qa_agent",
                 TaskType.INDEX: "indexing_agent",
+                TaskType.INCREMENTAL_INDEX: "indexing_agent",  # Uses indexing agent with Git changes
                 TaskType.DOCUMENT: "documentation_agent",
                 TaskType.STATUS: "indexing_agent",  # Status comes from indexing agent
+                TaskType.GIT_CHANGES: "git_agent",
                 TaskType.UNKNOWN: None,
             }
 
@@ -261,6 +282,25 @@ class OrchestratorAgent:
             elif selected_agent == "indexing_agent":
                 if task_type == TaskType.STATUS:
                     result = self.indexing_agent.get_indexing_status()
+                elif task_type == TaskType.INCREMENTAL_INDEX:
+                    # Detect changes and index only changed files
+                    changeset = self.git_agent.detect_changes()
+                    if changeset.has_changes:
+                        logger.info(f"Incremental indexing {changeset.total_changes} changed files")
+                        result = self.indexing_agent.index_files(changeset.files_to_reindex)
+                        # Save current commit after successful indexing (no errors)
+                        if len(result.errors) == 0:
+                            self.git_agent.save_current_commit()
+                    else:
+                        logger.info("No changes detected, skipping indexing")
+                        result = IndexingResult(
+                            files_processed=0,
+                            symbols_extracted=0,
+                            dependencies_found=0,
+                            embeddings_generated=0,
+                            errors=[],
+                            duration_seconds=0.0,
+                        )
                 elif task_type == TaskType.INDEX:
                     # Check if specific files or full repository
                     file_paths = state.get("file_paths")
@@ -268,6 +308,13 @@ class OrchestratorAgent:
                         result = self.indexing_agent.index_files(file_paths)
                     else:
                         result = self.indexing_agent.index_repository()
+                        # Save current commit after successful full indexing (no errors)
+                        if len(result.errors) == 0:
+                            self.git_agent.save_current_commit()
+
+            elif selected_agent == "git_agent":
+                # Detect Git changes
+                result = self.git_agent.detect_changes()
 
             elif selected_agent == "documentation_agent":
                 # Check what type of documentation is requested
@@ -491,6 +538,32 @@ class OrchestratorAgent:
             return result.result
         else:
             raise Exception(f"Failed to get status: {result.error}")
+
+    def detect_git_changes(self) -> GitChangeSet:
+        """
+        Detect Git changes since last indexing.
+
+        Returns:
+            GitChangeSet with detected changes
+        """
+        result = self.execute("Detect Git changes", task_type="git_changes")
+        if result.success:
+            return result.result
+        else:
+            raise Exception(f"Failed to detect Git changes: {result.error}")
+
+    def incremental_index(self) -> IndexingResult:
+        """
+        Perform incremental indexing based on Git changes.
+
+        Returns:
+            IndexingResult with statistics
+        """
+        result = self.execute("Incremental index", task_type="incremental_index")
+        if result.success:
+            return result.result
+        else:
+            raise Exception(f"Failed to perform incremental indexing: {result.error}")
 
 
 # Made with Bob

@@ -148,6 +148,66 @@ class RetrievalContext:
         """Get total number of symbols in context."""
         return len(self.all_symbols)
 
+
+@dataclass
+class GitChangeSet:
+    """
+    Represents changes detected in a Git repository since last indexing.
+
+    Attributes:
+        last_commit: Hash of the last indexed commit (None if first time)
+        current_commit: Hash of the current HEAD commit
+        added_files: List of newly added files
+        modified_files: List of modified files
+        deleted_files: List of deleted files
+        renamed_files: List of (old_path, new_path) tuples for renamed files
+        is_clean: True if working directory is clean (no uncommitted changes)
+        total_changes: Total number of changed files
+    """
+
+    last_commit: Optional[str]
+    current_commit: str
+    added_files: List[str] = field(default_factory=list)
+    modified_files: List[str] = field(default_factory=list)
+    deleted_files: List[str] = field(default_factory=list)
+    renamed_files: List[tuple[str, str]] = field(default_factory=list)
+    is_clean: bool = True
+
+    @property
+    def total_changes(self) -> int:
+        """Get total number of changed files."""
+        return (
+            len(self.added_files)
+            + len(self.modified_files)
+            + len(self.deleted_files)
+            + len(self.renamed_files)
+        )
+
+    @property
+    def has_changes(self) -> bool:
+        """Check if there are any changes."""
+        return self.total_changes > 0
+
+    @property
+    def files_to_reindex(self) -> List[str]:
+        """Get list of files that need to be re-indexed (added + modified + renamed destinations)."""
+        files = self.added_files + self.modified_files
+        files.extend([new_path for _, new_path in self.renamed_files])
+        return files
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary representation."""
+        return {
+            "last_commit": self.last_commit,
+            "current_commit": self.current_commit,
+            "added_files": self.added_files,
+            "modified_files": self.modified_files,
+            "deleted_files": self.deleted_files,
+            "renamed_files": self.renamed_files,
+            "is_clean": self.is_clean,
+            "total_changes": self.total_changes,
+        }
+
     def to_llm_context(self, include_expanded: bool = True) -> str:
         """
         Format context for LLM consumption.
