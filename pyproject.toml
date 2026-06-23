@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "MIT"}
 authors = [
-    {name = "MARIS Contributors"}
+    {name = "Rohin Patel", email = "rohin.patel@outlook.com"}
 ]
 keywords = ["repository", "intelligence", "llm", "code-analysis", "local-first"]
 classifiers = [
@@ -68,10 +68,10 @@ docs = [
 maris = "maris.cli.main:cli"
 
 [project.urls]
-Homepage = "https://github.com/yourusername/maris"
-Documentation = "https://github.com/yourusername/maris/docs"
-Repository = "https://github.com/yourusername/maris"
-Issues = "https://github.com/yourusername/maris/issues"
+Homepage = "https://github.com/rohinp/maris"
+Documentation = "https://github.com/rohinp/maris/docs"
+Repository = "https://github.com/rohinp/maris"
+Issues = "https://github.com/rohinp/maris/issues"
 
 [tool.setuptools.packages.find]
 where = ["src"]
