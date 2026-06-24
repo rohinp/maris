@@ -2,6 +2,7 @@
 
 import hashlib
 import logging
+import os
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -96,6 +97,9 @@ class IndexingAgent:
             "*/.pytest_cache/*",
             "*/.mypy_cache/*",
             "*/.tox/*",
+            "*/.nox/*",
+            "*/.ruff_cache/*",
+            "*/.eggs/*",
             "*/site-packages/*",
             "*/dist-packages/*",
             # Node.js / JavaScript
@@ -117,6 +121,8 @@ class IndexingAgent:
             "*/bin/*",
             "*/.next/*",
             "*/.nuxt/*",
+            "*/htmlcov/*",
+            "*/coverage/*",
             # IDE / Editor
             "*/.idea/*",
             "*/.vscode/*",
@@ -138,6 +144,8 @@ class IndexingAgent:
             # Documentation builds
             "*/_build/*",
             "*/docs/_build/*",
+            # MARIS local storage
+            "*/.maris/*",
         ]
 
         # Build the LangGraph workflow
@@ -626,6 +634,62 @@ class IndexingAgent:
             "last_indexed": stats["last_indexed"],
         }
 
+    def collect_source_files(
+        self, root_path: Optional[str | Path] = None, recursive: bool = True
+    ) -> List[str]:
+        """
+        Collect indexable files below a file or directory.
+
+        Applies the same implemented-extension and exclusion rules used by indexing,
+        and prunes excluded directories before descending into them.
+
+        Args:
+            root_path: File or directory to scan. Defaults to repository root.
+            recursive: Whether to recurse into subdirectories.
+
+        Returns:
+            List of paths relative to the repository root when possible.
+        """
+        root = Path(root_path) if root_path is not None else self.repo_path
+        if not root.is_absolute():
+            root = self.repo_path / root
+
+        if root.is_file():
+            rel_path = self._relative_to_repo(root)
+            if ParserFactory.is_implemented(rel_path) and not self._is_excluded(rel_path):
+                return [rel_path]
+            return []
+
+        if not root.is_dir():
+            return []
+
+        source_files = []
+
+        if recursive:
+            for current_root, dirnames, filenames in os.walk(root):
+                current_path = Path(current_root)
+
+                dirnames[:] = [
+                    dirname
+                    for dirname in dirnames
+                    if not self._is_excluded(self._relative_to_repo(current_path / dirname))
+                ]
+
+                for filename in filenames:
+                    file_path = current_path / filename
+                    rel_path = self._relative_to_repo(file_path)
+                    if ParserFactory.is_implemented(rel_path) and not self._is_excluded(rel_path):
+                        source_files.append(rel_path)
+        else:
+            for file_path in root.iterdir():
+                if not file_path.is_file():
+                    continue
+                rel_path = self._relative_to_repo(file_path)
+                if ParserFactory.is_implemented(rel_path) and not self._is_excluded(rel_path):
+                    source_files.append(rel_path)
+
+        return sorted(source_files)
+
     def _find_source_files(self) -> List[str]:
         """
         Find all source files in the repository using ParserFactory.
@@ -633,20 +697,14 @@ class IndexingAgent:
         Returns:
             List of file paths relative to repository root
         """
-        source_files = []
+        return self.collect_source_files(self.repo_path, recursive=True)
 
-        # Only scan extensions with implemented parsers.
-        supported_extensions = ParserFactory.get_implemented_extensions()
-
-        for ext in supported_extensions:
-            for file_path in self.repo_path.rglob(f"*{ext}"):
-                rel_path = str(file_path.relative_to(self.repo_path))
-
-                # Check exclusion patterns
-                if not self._is_excluded(rel_path):
-                    source_files.append(rel_path)
-
-        return source_files
+    def _relative_to_repo(self, path: Path) -> str:
+        """Return a normalized path relative to the repository root when possible."""
+        try:
+            return str(path.resolve().relative_to(self.repo_path.resolve())).replace("\\", "/")
+        except ValueError:
+            return str(path).replace("\\", "/")
 
     def _is_excluded(self, file_path: str) -> bool:
         """

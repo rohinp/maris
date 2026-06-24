@@ -1,15 +1,15 @@
 """Tests for Indexing Agent with LangGraph workflow."""
 
-import pytest
 from pathlib import Path
-from unittest.mock import Mock, MagicMock, patch, mock_open
-from typing import Dict, Any, List
+from unittest.mock import ANY, Mock, patch
+
+import pytest
 
 from maris.agents.indexing_agent import IndexingAgent
-from maris.core.models import Symbol, SymbolType, IndexingResult
+from maris.core.models import IndexingResult, Symbol, SymbolType
+from maris.embeddings.ollama_embeddings import OllamaEmbeddingService
 from maris.storage.metadata_store import MetadataStore
 from maris.storage.vector_store import VectorStore
-from maris.embeddings.ollama_embeddings import OllamaEmbeddingService
 
 
 # Test fixtures
@@ -155,6 +155,47 @@ class TestScanFilesNode:
         assert result["files_to_index"] == []
         assert result["total_files"] == 0
 
+    def test_collect_source_files_excludes_virtualenv_and_build_dirs(
+        self, indexing_agent, temp_repo_path
+    ):
+        """Test recursive discovery skips dependency and build directories."""
+        repo = Path(temp_repo_path)
+
+        excluded_files = [
+            repo / ".venv" / "lib" / "python3.12" / "site-packages" / "package.py",
+            repo / "venv" / "lib" / "package.py",
+            repo / "target" / "generated.py",
+            repo / "build" / "generated.py",
+            repo / "node_modules" / "pkg" / "index.js",
+            repo / "__pycache__" / "cached.py",
+        ]
+
+        for file_path in excluded_files:
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+            file_path.write_text("def ignored():\n    pass\n")
+
+        files = indexing_agent.collect_source_files(temp_repo_path, recursive=True)
+
+        assert "main.py" in files
+        assert "utils.py" in files
+        assert len([file_path for file_path in files if file_path.endswith(".py")]) == 2
+        assert all(".venv" not in file_path for file_path in files)
+        assert all("target" not in file_path for file_path in files)
+        assert all("node_modules" not in file_path for file_path in files)
+
+    def test_collect_source_files_non_recursive_only_indexes_direct_children(
+        self, indexing_agent, temp_repo_path
+    ):
+        """Test non-recursive discovery does not descend into child directories."""
+        repo = Path(temp_repo_path)
+        nested_file = repo / "src" / "nested.py"
+        nested_file.parent.mkdir(parents=True, exist_ok=True)
+        nested_file.write_text("def nested():\n    pass\n")
+
+        files = indexing_agent.collect_source_files(temp_repo_path, recursive=False)
+
+        assert files == ["main.py", "utils.py"]
+
 
 # Test: Node - parse_files
 class TestParseFilesNode:
@@ -292,7 +333,9 @@ class TestGenerateEmbeddingsNode:
         assert "embeddings" in result
         assert result["embeddings_generated"] == 2
         assert len(result["embeddings"]) == 2
-        mock_embedding_service.embed_symbols.assert_called_once_with(sample_symbols)
+        mock_embedding_service.embed_symbols.assert_called_once_with(
+            sample_symbols, progress_callback=ANY
+        )
 
     def test_generate_embeddings_with_no_symbols(self, indexing_agent, mock_embedding_service):
         """Test embedding generation when no symbols exist."""
@@ -520,7 +563,7 @@ class TestIndexFiles:
         ]
         mock_metadata_store.find_symbols_in_file.return_value = existing_symbols
 
-        result = indexing_agent.index_files(["main.py"])
+        indexing_agent.index_files(["main.py"])
 
         # Verify cleanup was called
         mock_metadata_store.delete_dependencies_for_file.assert_called_with("main.py")

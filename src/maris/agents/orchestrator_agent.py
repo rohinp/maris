@@ -606,6 +606,19 @@ class OrchestratorAgent:
         else:
             raise Exception(f"Failed to index files: {result.error}")
 
+    def collect_indexable_files(self, root_path: str, recursive: bool = True) -> List[str]:
+        """
+        Collect indexable files using the indexing agent's parser and exclusion rules.
+
+        Args:
+            root_path: File or directory to scan
+            recursive: Whether to recurse into subdirectories
+
+        Returns:
+            List of indexable file paths
+        """
+        return self.indexing_agent.collect_source_files(root_path, recursive=recursive)
+
     def generate_documentation(self, file_path: str, format: str = "object") -> Any:
         """
         Generate documentation for a file.

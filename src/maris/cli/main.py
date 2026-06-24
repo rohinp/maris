@@ -2,8 +2,7 @@
 
 import os
 import sys
-import threading
-import time
+from collections import Counter
 from pathlib import Path
 from typing import Optional
 
@@ -11,7 +10,6 @@ import click
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
 from rich.table import Table
 
 from maris import __version__
@@ -270,34 +268,24 @@ def index(
             )
             return
 
-        # Collect files to index
-        files_to_index = []
-
         if path.is_file():
-            files_to_index.append(str(path))
+            files_to_index = ctx.orchestrator.collect_indexable_files(str(path), recursive=False)
         elif path.is_dir():
-            # Use orchestrator to find all supported files
-            from maris.indexing import ParserFactory
-
-            supported_extensions = ParserFactory.get_implemented_extensions()
+            files_to_index = ctx.orchestrator.collect_indexable_files(
+                str(path), recursive=recursive
+            )
+            extension_counts = Counter(Path(file_path).suffix for file_path in files_to_index)
+            extensions = sorted(extension_counts)
 
             console.print(
-                f"[dim]Scanning for files with extensions: {', '.join(supported_extensions)}[/dim]"
+                f"[dim]Scanning for files with extensions: {', '.join(extensions) or 'none'}[/dim]"
             )
             console.print(f"[dim]Recursive: {recursive}[/dim]")
 
-            if recursive:
-                for ext in supported_extensions:
-                    found = list(path.rglob(f"*{ext}"))
-                    if found:
-                        console.print(f"[dim]Found {len(found)} {ext} files[/dim]")
-                    files_to_index.extend(str(f) for f in found)
-            else:
-                for ext in supported_extensions:
-                    found = list(path.glob(f"*{ext}"))
-                    if found:
-                        console.print(f"[dim]Found {len(found)} {ext} files[/dim]")
-                    files_to_index.extend(str(f) for f in found)
+            for ext, count in sorted(extension_counts.items()):
+                console.print(f"[dim]Found {count} {ext} files[/dim]")
+        else:
+            files_to_index = []
 
         if not files_to_index:
             console.print("[yellow]No supported files found to index[/yellow]")
@@ -309,7 +297,7 @@ def index(
         console.print(f"[cyan]Indexing {len(files_to_index)} file(s)...[/cyan]")
 
         # Use orchestrator to index files with progress tracking
-        from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
+        from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn
 
         with Progress(
             SpinnerColumn(),
