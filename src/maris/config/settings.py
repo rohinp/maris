@@ -89,6 +89,7 @@ class MarisConfig(BaseSettings):
         env_file = ".env"
         env_file_encoding = "utf-8"
         case_sensitive = False
+        extra = "ignore"  # Ignore extra fields from environment
 
 
 def load_config(env_file: Optional[Path] = None) -> MarisConfig:
