@@ -14,6 +14,7 @@ from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
 from rich.table import Table
 
+from maris import __version__
 from maris.agents.orchestrator_agent import OrchestratorAgent
 from maris.config import MarisConfig, load_config
 from maris.embeddings.ollama_embeddings import OllamaEmbeddingService
@@ -165,6 +166,14 @@ def cli(ctx, config_file: Optional[Path], skip_validation: bool):
         config.data_dir = Path.cwd() / ".maris"
 
     ctx.obj = MarisContext(config, skip_validation=skip_validation)
+
+
+@cli.command()
+def version():
+    """Display MARIS version information."""
+    console.print(f"\n[bold cyan]MARIS[/bold cyan] version [bold green]{__version__}[/bold green]")
+    console.print("\n[dim]Local Multi-Agent Repository Intelligence System[/dim]")
+    console.print("[dim]https://github.com/yourusername/maris[/dim]\n")
 
 
 @cli.command()

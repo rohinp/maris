@@ -44,6 +44,32 @@ maris --data-dir ./my-data --llm-model qwen2.5:14b index src/
 
 ## Commands
 
+### `maris version`
+
+Display MARIS version information.
+
+**Usage:**
+```bash
+maris version
+```
+
+**Example:**
+```bash
+$ maris version
+
+MARIS version 0.1.5
+
+Local Multi-Agent Repository Intelligence System
+https://github.com/yourusername/maris
+```
+
+**Use case:**
+- Verify installed version after upgrade
+- Check version before reporting issues
+- Confirm successful installation
+
+---
+
 ### `maris index`
 
 Index a file or directory to build the repository knowledge base.

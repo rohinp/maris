@@ -5,7 +5,7 @@ A local-first repository intelligence platform for understanding,
 navigating, and analyzing source code.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.1.5"
 
 from maris.core.models import Symbol, SymbolType, RetrievalContext, Commit
 
