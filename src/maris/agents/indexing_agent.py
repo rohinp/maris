@@ -290,13 +290,26 @@ class IndexingAgent:
             return state
 
         try:
-            logger.info("Generating embeddings for symbols")
-
             symbols = state.get("extracted_symbols", [])
 
             if symbols:
-                # Generate embeddings in batches
-                embeddings = self.embedding_service.embed_symbols(symbols)
+                logger.info(f"Generating embeddings for {len(symbols)} symbols")
+
+                # Track progress
+                state["embedding_progress"] = {"current": 0, "total": len(symbols)}
+
+                def progress_callback(current: int, total: int) -> None:
+                    """Update progress in state."""
+                    state["embedding_progress"] = {"current": current, "total": total}
+                    if current % 100 == 0 or current == total:
+                        logger.info(
+                            f"Embedding progress: {current}/{total} ({current*100//total}%)"
+                        )
+
+                # Generate embeddings with progress tracking
+                embeddings = self.embedding_service.embed_symbols(
+                    symbols, progress_callback=progress_callback
+                )
 
                 state["embeddings"] = embeddings
                 state["embeddings_generated"] = len(embeddings)

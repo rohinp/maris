@@ -1,7 +1,8 @@
 """Ollama-based embedding generation service."""
 
 import logging
-from typing import List, Optional
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Callable, List, Optional
 
 import ollama
 
@@ -26,6 +27,7 @@ class OllamaEmbeddingService:
         model: str = "nomic-embed-text",
         host: Optional[str] = None,
         batch_size: int = 32,
+        max_workers: int = 4,
     ):
         """
         Initialize the Ollama embedding service.
@@ -34,13 +36,17 @@ class OllamaEmbeddingService:
             model: Name of the Ollama embedding model to use
             host: Optional Ollama host URL (default: http://localhost:11434)
             batch_size: Number of texts to embed in a single batch
+            max_workers: Maximum number of parallel workers for embedding generation
         """
         self.model = model
         self.host = host
         self.batch_size = batch_size
+        self.max_workers = max_workers
         self.client = ollama.Client(host=host) if host else ollama.Client()
 
-        logger.info(f"Initialized OllamaEmbeddingService with model: {model}")
+        logger.info(
+            f"Initialized OllamaEmbeddingService with model: {model}, max_workers: {max_workers}"
+        )
 
     def generate_embedding(self, text: str) -> List[float]:
         """
@@ -59,32 +65,56 @@ class OllamaEmbeddingService:
             logger.error(f"Failed to generate embedding: {e}")
             raise
 
-    def generate_embeddings(self, texts: List[str]) -> List[List[float]]:
+    def generate_embeddings(
+        self, texts: List[str], progress_callback: Optional[Callable[[int, int], None]] = None
+    ) -> List[List[float]]:
         """
-        Generate embeddings for multiple texts in batches.
+        Generate embeddings for multiple texts in parallel.
 
         Args:
             texts: List of texts to embed
+            progress_callback: Optional callback function(current, total) for progress updates
 
         Returns:
-            List of embedding vectors
+            List of embedding vectors in the same order as input texts
         """
-        embeddings = []
+        if not texts:
+            return []
 
-        for i in range(0, len(texts), self.batch_size):
-            batch = texts[i : i + self.batch_size]
-            logger.debug(f"Processing batch {i // self.batch_size + 1} ({len(batch)} texts)")
+        # Store results with their original indices to maintain order
+        results: List[List[float]] = [None] * len(texts)  # type: ignore
+        completed = 0
 
-            for text in batch:
-                try:
-                    embedding = self.generate_embedding(text)
-                    embeddings.append(embedding)
-                except Exception as e:
-                    logger.error(f"Failed to embed text in batch: {e}")
-                    # Use zero vector as fallback
-                    embeddings.append([0.0] * 768)  # Default dimension
+        def embed_with_index(idx: int, text: str) -> tuple:
+            """Embed a single text and return with its index."""
+            try:
+                embedding = self.generate_embedding(text)
+                return (idx, embedding, None)
+            except Exception as e:
+                logger.error(f"Failed to embed text at index {idx}: {e}")
+                return (idx, [0.0] * 768, str(e))  # Fallback zero vector
 
-        return embeddings
+        # Use ThreadPoolExecutor for parallel processing
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            # Submit all tasks
+            futures = {
+                executor.submit(embed_with_index, idx, text): idx for idx, text in enumerate(texts)
+            }
+
+            # Process completed tasks
+            for future in as_completed(futures):
+                idx, embedding, error = future.result()
+                results[idx] = embedding
+                completed += 1
+
+                # Call progress callback if provided
+                if progress_callback:
+                    progress_callback(completed, len(texts))
+
+                if error:
+                    logger.warning(f"Used fallback embedding for text {idx} due to error: {error}")
+
+        return results
 
     def embed_symbol(self, symbol: Symbol) -> List[float]:
         """
@@ -120,12 +150,15 @@ class OllamaEmbeddingService:
         text = "\n".join(parts)
         return self.generate_embedding(text)
 
-    def embed_symbols(self, symbols: List[Symbol]) -> List[List[float]]:
+    def embed_symbols(
+        self, symbols: List[Symbol], progress_callback: Optional[Callable[[int, int], None]] = None
+    ) -> List[List[float]]:
         """
-        Generate embeddings for multiple symbols.
+        Generate embeddings for multiple symbols in parallel.
 
         Args:
             symbols: List of symbols to embed
+            progress_callback: Optional callback function(current, total) for progress updates
 
         Returns:
             List of embedding vectors
@@ -148,7 +181,7 @@ class OllamaEmbeddingService:
 
             texts.append("\n".join(parts))
 
-        return self.generate_embeddings(texts)
+        return self.generate_embeddings(texts, progress_callback=progress_callback)
 
     def check_model_availability(self) -> bool:
         """

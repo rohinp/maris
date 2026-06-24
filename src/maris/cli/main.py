@@ -2,6 +2,8 @@
 
 import os
 import sys
+import threading
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -9,6 +11,7 @@ import click
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
+from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
 from rich.table import Table
 
 from maris.agents.orchestrator_agent import OrchestratorAgent
@@ -296,13 +299,42 @@ def index(
 
         console.print(f"[cyan]Indexing {len(files_to_index)} file(s)...[/cyan]")
 
-        # Use orchestrator to index files
-        with console.status("[bold green]Indexing files..."):
+        # Use orchestrator to index files with progress tracking
+        from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
+
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TaskProgressColumn(),
+            console=console,
+        ) as progress:
+            # Create tasks for different phases
+            parse_task = progress.add_task("[cyan]Parsing files...", total=len(files_to_index))
+            embed_task = progress.add_task(
+                "[green]Generating embeddings...", total=None, visible=False
+            )
+
+            # Start indexing
             result = ctx.orchestrator.execute(
                 request="Index files",
                 task_type="index",
                 file_paths=files_to_index,
             )
+
+            # Mark parsing as complete
+            progress.update(parse_task, completed=len(files_to_index))
+
+            # Show embedding progress if available
+            if result.success and result.result:
+                indexing_result = result.result
+                if indexing_result.symbols_extracted > 0:
+                    progress.update(
+                        embed_task,
+                        total=indexing_result.symbols_extracted,
+                        completed=indexing_result.embeddings_generated,
+                        visible=True,
+                    )
 
         if result.success:
             indexing_result = result.result
