@@ -4,12 +4,16 @@
 
 This specification outlines the implementation plan for adding support for multiple programming languages to MARIS using tree-sitter parsers. The goal is to extend MARIS beyond Python to support Scala, Java, Kotlin, JavaScript, TypeScript, Go, Shell scripts, and Rust.
 
+Last updated: 2026-06-24
+
+Current production parser support is Python, Java, and Scala. Other languages are mapped as planned extensions in `ParserFactory` but do not have registered parser implementations yet.
+
 ## Implementation Status
 
 ### ✅ Phase 1: Infrastructure (COMPLETED)
 - ✅ **Base Parser Class** (`src/maris/indexing/parser.py`): Abstract `TreeSitterParser` class with common functionality
 - ✅ **Python Parser** (`src/maris/indexing/python_parser.py`): Full implementation for Python
-- ✅ **Tree-sitter Integration**: Core tree-sitter library (v0.21.0+) with 8 language bindings installed
+- ✅ **Tree-sitter Integration**: Core tree-sitter library (v0.21.0+) with language grammar packages listed in `requirements.txt`
 - ✅ **Symbol Model**: Language-agnostic `Symbol` and `Dependency` models
 - ✅ **Indexing Agent**: LangGraph-based agent that can handle multiple languages
 - ✅ **ParserFactory** (`src/maris/indexing/parser_factory.py`): Factory pattern for language-specific parser selection
@@ -326,8 +330,8 @@ Update `src/maris/cli/main.py` to support multi-language indexing with language 
 | Language   | Status | Classes | Functions | Interfaces | Dependencies | Notes |
 |------------|--------|---------|-----------|------------|--------------|-------|
 | Python     | ✅ Full | ✅ | ✅ | ❌ | ✅ | Complete |
-| Java       | 📝 Planned | - | - | - | - | Not started |
-| Scala      | 📝 Planned | - | - | - | - | Not started |
+| Java       | ✅ Implemented | ✅ | ✅ | ✅ | ✅ | Parser and tests implemented |
+| Scala      | ✅ Implemented | ✅ | ✅ | ❌ | ✅ | Traits/objects supported |
 | Kotlin     | 📝 Planned | - | - | - | - | Not started |
 | JavaScript | 📝 Planned | - | - | - | - | Not started |
 | TypeScript | 📝 Planned | - | - | - | - | Not started |
@@ -342,16 +346,16 @@ Implement parallel parsing and caching for large repositories.
 ## Implementation Timeline
 
 ### Week 1-2: Infrastructure
-- [ ] Create ParserFactory
-- [ ] Update requirements.txt
-- [ ] Update IndexingAgent for multi-language support
-- [ ] Create test infrastructure
+- [x] Create ParserFactory
+- [x] Update requirements.txt
+- [x] Update IndexingAgent for multi-language support
+- [x] Create test infrastructure
 
 ### Week 3-4: JVM Languages
-- [ ] Implement JavaParser
-- [ ] Implement ScalaParser
+- [x] Implement JavaParser
+- [x] Implement ScalaParser
 - [ ] Implement KotlinParser
-- [ ] Write comprehensive tests
+- [x] Write comprehensive tests for Java and Scala
 
 ### Week 5-6: Web Languages
 - [ ] Implement JavaScriptParser
@@ -373,22 +377,23 @@ Implement parallel parsing and caching for large repositories.
 ## Success Criteria
 
 ### Functional Requirements
-- ✅ All 9 languages supported (Python + 8 new)
-- ✅ Symbol extraction works for all languages
-- ✅ Dependency extraction works for all languages
-- ✅ CLI supports multi-language indexing
-- ✅ Tests pass with >80% coverage per parser
+- [x] Python, Java, and Scala parsers are implemented and registered
+- [ ] All 9 planned languages supported
+- [ ] Symbol extraction works for all planned languages
+- [ ] Dependency extraction works for all planned languages
+- [x] CLI indexes files for implemented parser extensions
+- [x] Parser tests pass with >80% coverage for implemented parsers
 
 ### Performance Requirements
-- ✅ Parse 1000 files in <60 seconds
-- ✅ Memory usage <2GB for large repositories
-- ✅ Incremental indexing works efficiently
+- [ ] Parse 1000 files in <60 seconds
+- [ ] Memory usage <2GB for large repositories
+- [x] Incremental indexing works through Git Agent
 
 ### Quality Requirements
-- ✅ Comprehensive documentation
-- ✅ Clear error messages
-- ✅ Backward compatibility maintained
-- ✅ No breaking changes to existing API
+- [ ] Comprehensive documentation for all planned languages
+- [x] Clear behavior for unsupported/planned parser extensions through `get_implemented_extensions()`
+- [x] Backward compatibility maintained for Python parser API
+- [x] No breaking changes to existing API
 
 ## Risks and Mitigations
 
@@ -443,7 +448,8 @@ Implement parallel parsing and caching for large repositories.
 
 ---
 
-**Status**: 📝 Specification Complete - Ready for Implementation
+**Status**: Active - Python, Java, and Scala implemented; remaining languages planned
 **Created**: 2026-06-23
+**Last Updated**: 2026-06-24
 **Author**: Bob (AI Assistant)
 **Related**: `.codex/specs/indexing-agent.md`, `src/maris/indexing/parser.py`

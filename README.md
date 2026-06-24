@@ -1,637 +1,255 @@
-# Local Multi-Agent Repository Intelligence System
+# MARIS
 
-## Vision
+MARIS is a local-first, multi-agent repository intelligence system for understanding source code. It indexes repositories with language-aware parsers, stores repository knowledge locally, and uses local Ollama models for search, Q&A, documentation, and impact analysis.
 
-Build a fully local, privacy-first repository intelligence platform that helps developers understand, navigate, document, analyze, and reason about source code.
+The goal is to help developers reason about codebases without sending source code to external services. MARIS focuses on repository understanding rather than code generation.
 
-The goal is **not** to compete with cloud coding assistants such as Claude Code, Cursor, GitHub Copilot, or OpenAI Codex.
+## Current Status
 
-The system will:
+MARIS is an alpha-stage Python package.
 
-* Run locally
-* Use local LLMs
-* Never require source code to leave the machine
-* Focus on understanding rather than code generation
-* Be language-aware through AST parsing
-* Maintain a continuously updated repository knowledge graph
-* Support multiple specialized agents
+Implemented:
 
-The primary objective is to become a "repository expert" capable of answering questions, generating documentation, explaining architecture, performing impact analysis, and understanding code evolution over time.
+- CLI entry point: `maris`
+- Local storage with DuckDB metadata and LanceDB vectors
+- Ollama-based embeddings and local model validation
+- Parser implementations for Python, Java, and Scala
+- Repository indexing, semantic search, symbol explanations, Q&A, documentation generation, and repository stats
+- Git-based incremental indexing
+- Impact analysis commands for impact, edge cases, test coverage, and breaking changes
 
----
+Planned or incomplete:
 
-# Core Principles
+- Parser factory lists additional planned languages, but Kotlin, JavaScript, TypeScript, Go, Bash, and Rust parsers are not implemented yet
+- Git archaeology and architecture evolution agents are roadmap items
+- Some secondary docs may lag the CLI; the root README should be treated as the current quick-start reference
+- `AGENT.md` is contributor guidance and product direction, not an executable agent spec
 
-## 1. Retrieval First
+## Requirements
 
-The quality of answers depends on retrieval quality.
+- Python 3.11+
+- Ollama running locally
+- Required Ollama models:
+  - `nomic-embed-text` for embeddings
+  - `qwen2.5:7b` by default for Q&A and documentation
 
-The system should prioritize:
-
-* AST-aware indexing
-* Symbol-aware retrieval
-* Dependency-aware retrieval
-
-over generic vector similarity search.
-
----
-
-## 2. Code is a Graph
-
-A repository is not a collection of files.
-
-A repository is a graph of:
-
-* Packages
-* Modules
-* Classes
-* Traits
-* Interfaces
-* Functions
-* Methods
-* Dependencies
-* Imports
-* Call relationships
-
-The system should maintain this graph as a first-class entity.
-
----
-
-## 3. Local First
-
-All processing should happen locally:
-
-* Parsing
-* Embedding generation
-* Retrieval
-* Reasoning
-
-No external APIs are required.
-
----
-
-## 4. Specialized Agents
-
-Each agent should have a single responsibility.
-
-Avoid creating one large autonomous agent.
-
-Instead create multiple focused agents sharing a common knowledge layer.
-
----
-
-# High-Level Architecture
-
-```text
-Repository
-
-    │
-
-    ▼
-
-Indexing Agent
-
-    │
-
-    ▼
-
-Repository Knowledge Layer
-
-    ├── Symbol Store
-    ├── Dependency Graph
-    ├── Vector Store
-    ├── Commit History
-    └── Metadata
-
-    │
-
-    ▼
-
-Agents
-
-    ├── Documentation Agent ✅
-    ├── Q&A Agent ✅
-    ├── Git Agent ✅
-    ├── Impact Analysis Agent ✅
-    ├── Git Archaeology Agent (Planned)
-    └── Future Agents
-```
-
----
-
-# Technology Choices
-
-## Parsing
-
-Use Tree-sitter.
-
-Reason:
-
-* Mature ecosystem
-* Multi-language support
-* Incremental parsing
-* Existing grammars
-
-Supported languages for MVP:
-
-* Scala
-* Java
-* Python
-
-Future:
-
-* Go
-* Rust
-* Kotlin
-* C++
-* C#
-* TypeScript
-
----
-
-## Local LLM Runtime
-
-Use Ollama.
-
-Candidate models:
-
-### MVP
-
-* Qwen3 8B
-* Gemma 3 12B
-
-### Recommended
-
-* Qwen3 32B
-
-### Future
-
-* Qwen3 72B
-* DeepSeek R1 Distill
-
----
-
-## Embeddings
-
-Candidate models:
-
-* nomic-embed-text
-* bge-large
-* gte-large
-
-Embeddings should only assist retrieval.
-
-They must not become the primary retrieval mechanism.
-
----
-
-## Agent Orchestration
-
-Use LangGraph.
-
-Reason:
-
-* Explicit workflows
-* State management
-* Tool orchestration
-* Easy future expansion
-
-Avoid autonomous agent loops.
-
-Prefer deterministic workflows.
-
----
-
-## Storage
-
-### Metadata Store
-
-DuckDB
-
-Stores:
-
-* symbols
-* files
-* relationships
-* commits
-* documentation
-
----
-
-### Vector Store
-
-LanceDB
-
-Stores:
-
-* embeddings
-* semantic search index
-
-Alternative:
-
-* Qdrant
-
----
-
-### Future Graph Database
-
-Optional.
-
-Candidates:
-
-* KuzuDB
-* Neo4j
-
-Do not introduce graph databases during MVP.
-
----
-
-# Repository Knowledge Layer
-
-This is the most important component.
-
-All agents interact through this layer.
-
-Responsibilities:
-
-* Symbol lookup
-* Dependency traversal
-* Semantic retrieval
-* Impact analysis support
-* Commit history lookup
-
-Example interface:
-
-```scala
-trait RepositoryKnowledgeService {
-
-  def findSymbol(name: String)
-
-  def findCallers(symbol: Symbol)
-
-  def findCallees(symbol: Symbol)
-
-  def retrieveContext(question: String)
-
-  def impactedSymbols(symbol: Symbol)
-
-}
-```
-
-This layer becomes the foundation of the entire platform.
-
----
-
-# MVP
-
-## Agent 1: Repository Indexing Agent
-
-### Responsibilities
-
-Convert source code into structured knowledge.
-
-### Workflow
-
-Repository
-
-↓
-
-Tree-sitter AST
-
-↓
-
-Symbol Extraction
-
-↓
-
-Dependency Extraction
-
-↓
-
-Embedding Generation
-
-↓
-
-Storage
-
-### Extracted Metadata
-
-For every symbol:
-
-```json
-{
-  "symbol": "GraphRunner.retryExecuteNode",
-  "type": "method",
-  "file": "GraphRunner.scala",
-  "language": "scala",
-  "calls": [
-    "attemptExecuteNode"
-  ]
-}
-```
-
-### Incremental Updates
-
-✅ **Implemented via Git Agent**
-
-The system now includes a Git Agent that:
-
-* Detects changes via `git diff`
-* Tracks the last indexed commit
-* Re-indexes only changed files
-* Supports incremental indexing via CLI: `maris index --incremental`
-
-This dramatically improves indexing performance for large repositories.
-
-See [Git Agent Documentation](docs/GIT_AGENT.md) for details.
-
----
-
-## Agent 2: Documentation Agent
-
-### Responsibilities
-
-Generate repository documentation.
-
-### Output
-
-* Architecture overview
-* Component documentation
-* Module descriptions
-* Dependency diagrams
-* Data flow descriptions
-
-### Important Rule
-
-Never generate documentation directly from raw files.
-
-Always use indexed symbols and repository graph data.
-
----
-
-## Agent 3: Repository Q&A Agent
-
-### Responsibilities
-
-Answer questions about code.
-
-Examples:
-
-* Explain GraphRunner
-* How does retry work?
-* Where is reducer used?
-* What happens when training starts?
-
-### Workflow
-
-Question
-
-↓
-
-Retrieve Symbols
-
-↓
-
-Expand Dependencies
-
-↓
-
-Build Context
-
-↓
-
-LLM Reasoning
-
-↓
-
-Answer
-
-### Goal
-
-Context should consist of relevant symbols.
-
-Not arbitrary chunks.
-
----
-
-# Future Roadmap
-
-## Agent 4: Git Agent
-
-✅ **Implemented** (June 2026)
-
-Purpose:
-
-Track repository changes and enable incremental indexing.
-
-Capabilities:
-
-* Detect changes since last indexing
-* Categorize changes (added/modified/deleted/renamed)
-* Enable efficient incremental re-indexing
-* Track commit history
-
-See [Git Agent Documentation](docs/GIT_AGENT.md) for details.
-
----
-
-## Agent 5: Impact Analysis Agent
-
-✅ **Implemented** (June 2026)
-
-Purpose:
-
-Analyze the impact of code changes and help developers understand what will be affected by modifications.
-
-Capabilities:
-
-* **Dependency analysis**: Find direct and indirect callers, callees, and affected files
-* **Test discovery**: Identify tests covering symbols and suggest missing scenarios
-* **Edge case detection**: Detect missing null checks, error handling, and boundary conditions
-* **Breaking change detection**: Identify potential breaking changes and affected callers
-* **Recommendations**: Generate actionable recommendations based on analysis
-
-Integration:
-
-* **Auto-routing**: Orchestrator automatically routes impact-related questions (keywords: "impact", "affect", "break", "edge case", "test coverage")
-* **Explicit CLI**:
-  - `maris impact analyze --symbol "SymbolName"`
-  - `maris impact edge-cases --file "path/to/file.py"`
-  - `maris impact tests --symbol "SymbolName"`
-  - `maris impact breaking-changes --symbol "SymbolName"`
-* **Implicit via ask**: `maris ask "What will be affected if I change X?"`
-
-Example:
+Install or start Ollama separately, then pull the default models:
 
 ```bash
-# Auto-routed to Impact Analysis Agent
-maris ask "What will be affected if I change GitAgent?"
+ollama pull nomic-embed-text
+ollama pull qwen2.5:7b
+```
 
-# Explicit impact analysis
+## Installation
+
+For local development:
+
+```bash
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+pip install -r requirements-dev.txt
+pip install -e .
+```
+
+Alternatively, use the setup script:
+
+```bash
+./setup.sh
+source venv/bin/activate
+```
+
+Verify the CLI:
+
+```bash
+maris --help
+```
+
+## Quick Start
+
+Run MARIS from the repository you want to analyze. By default, MARIS stores project-specific data in `.maris/` in the current working directory unless `MARIS_DATA_DIR` is set.
+
+```bash
+# Index supported source files recursively
+maris index src/ --recursive
+
+# Show indexed repository statistics
+maris stats
+
+# Search indexed symbols
+maris search "RepositoryKnowledge"
+
+# Ask a question grounded in indexed symbols
+maris ask "How does indexing work?"
+
+# Explain a symbol
+maris explain IndexingAgent
+
+# Generate documentation for one file
+maris document src/maris/agents/indexing_agent.py --output docs/indexing_agent.md
+```
+
+Incremental indexing uses Git change detection:
+
+```bash
+maris index --incremental
+```
+
+Impact analysis examples:
+
+```bash
 maris impact analyze --symbol "GitAgent.detect_changes"
 maris impact edge-cases --file "src/maris/agents/git_agent.py"
 maris impact tests --symbol "QAAgent.answer_question"
+maris impact breaking-changes --symbol "RepositoryKnowledgeImpl"
 ```
 
-See [Impact Analysis Agent Documentation](docs/IMPACT_ANALYSIS_AGENT.md) for details.
+Interactive Q&A:
 
----
+```bash
+maris interactive
+```
 
-## Agent 6: Git Archaeology Agent
+## CLI Reference
 
-Purpose:
+Global options:
 
-Understand historical code evolution.
+```bash
+maris --config-file .env --skip-validation COMMAND
+```
 
-Questions:
+Commands:
 
-* When was this bug introduced?
-* Who changed this logic?
-* Why was this method added?
+- `maris index [PATH]`: index a file or directory
+- `maris index --incremental`: index files changed since the last indexed commit
+- `maris search QUERY`: semantic symbol search
+- `maris explain SYMBOL_NAME`: explain a symbol with relevant indexed context
+- `maris ask QUESTION`: ask a natural-language repository question
+- `maris impact analyze`: analyze callers, callees, affected files, and recommendations
+- `maris impact edge-cases`: detect likely edge case risks
+- `maris impact tests`: inspect test coverage signals
+- `maris impact breaking-changes`: detect potential breaking change risks
+- `maris document FILE_PATH`: generate Markdown documentation for a file
+- `maris stats`: show indexed symbol counts
+- `maris clear`: clear indexed metadata and vectors
+- `maris interactive`: start an interactive Q&A session
 
-Data Sources:
+Use command help for exact options:
 
-* git log
-* git blame
-* commit metadata
+```bash
+maris COMMAND --help
+maris impact COMMAND --help
+```
 
-Capabilities:
+## Configuration
 
-* commit timeline generation
-* code evolution summaries
-* regression identification
+Configuration is loaded in this order:
 
----
+1. Environment variables with the `MARIS_` prefix
+2. `.env` in the current directory
+3. `~/.maris/.env`
+4. Defaults
 
-## Agent 6: Test Suggestion Agent
+Common settings:
 
-Purpose:
+```bash
+MARIS_DATA_DIR=.maris
+MARIS_OLLAMA_HOST=http://localhost:11434
+MARIS_EMBEDDING_MODEL=nomic-embed-text
+MARIS_EMBEDDING_BATCH_SIZE=32
+MARIS_QA_MODEL=qwen2.5:7b
+MARIS_QA_TEMPERATURE=0.7
+MARIS_QA_MAX_TOKENS=2048
+MARIS_DOC_MODEL=qwen2.5:7b
+MARIS_DOC_TEMPERATURE=0.3
+MARIS_DOC_MAX_TOKENS=4096
+MARIS_MAX_SEARCH_RESULTS=20
+MARIS_MAX_CONTEXT_SYMBOLS=10
+MARIS_ENABLE_CACHING=true
+MARIS_PARALLEL_INDEXING=false
+MARIS_LOG_LEVEL=INFO
+```
 
-Suggest tests based on modifications.
+For first-time setup, `maris index ... --auto-pull` can pull missing Ollama models automatically. Use `--skip-validation` only when you intentionally want to bypass Ollama and model checks.
 
-Inputs:
+## Architecture
 
-* changed symbols
-* dependency graph
-* historical bugs
-
-Outputs:
-
-* missing tests
-* edge cases
-* regression scenarios
-
----
-
-## Agent 7: Architecture Evolution Agent
-
-Purpose:
-
-Track architecture changes over time.
-
-Capabilities:
-
-* detect coupling growth
-* detect module boundaries
-* identify hotspots
-* detect architectural drift
-
----
-
-# Retrieval Strategy
-
-## Do Not
-
-Generic chunking:
+MARIS is organized around a shared repository knowledge layer:
 
 ```text
-1000 token chunks
+Source repository
+    -> Indexing Agent
+    -> Repository Knowledge Layer
+       -> DuckDB metadata store
+       -> LanceDB vector store
+       -> Ollama embeddings
+    -> Specialized agents
+       -> Q&A Agent
+       -> Documentation Agent
+       -> Git Agent
+       -> Impact Analysis Agent
 ```
 
-This loses structure.
-
----
-
-## Preferred
-
-AST-based symbol chunking.
-
-Example:
+Core source layout:
 
 ```text
-Package
-
-  ├── Class
-
-        ├── Method
-
-        ├── Method
-
-        └── Method
+src/maris/
+  agents/       specialized agents and orchestrator
+  cli/          Click-based CLI
+  config/       configuration loading
+  core/         domain models
+  embeddings/   Ollama embedding service
+  indexing/     Tree-sitter parsers and parser factory
+  knowledge/    repository knowledge service
+  storage/      DuckDB and LanceDB adapters
+  utils/        shared validation helpers
 ```
 
-Each symbol becomes a retrievable unit.
+## Development
 
----
+Run tests:
 
-## Retrieval Pipeline
+```bash
+pytest
+```
 
-Question
+Run targeted tests:
 
-↓
+```bash
+pytest tests/test_python_parser.py
+pytest tests/test_orchestrator_agent.py
+```
 
-Vector Search
+Formatting and linting tools are configured in `pyproject.toml`:
 
-↓
+```bash
+black src tests
+ruff check src tests
+```
 
-Symbol Expansion
+## Contributor Guidance
 
-↓
+`AGENT.md` contains contributor guidance and product direction. The key expectations are:
 
-Dependency Expansion
+- Read `.codex/project-profile.md` before changing architecture or design direction
+- Read relevant files in `.codex/specs/` before changing behavior
+- Preserve the local-first, retrieval-first, symbol-aware design
+- Prefer deterministic workflows and specialized agents over broad autonomous loops
+- Update specs when behavior, acceptance criteria, API contracts, or domain rules change
 
-↓
+Gaps found during review:
 
-Context Assembly
+- `AGENT.md` refers to a `pragmatic-developer` skill and says the guidance is intended for Claude; that dependency is not represented in this repository and may confuse other agents or contributors
+- The root README previously read more like a product vision than a setup and usage guide
+- Some docs mention stale or unsupported CLI flags; verify behavior against `src/maris/cli/main.py`
+- Runtime dependencies are split unevenly between `requirements.txt` and `pyproject.toml`; use `requirements.txt` for a reliable local setup until package metadata is reconciled
+- The roadmap and parser support docs should distinguish implemented languages from planned languages consistently
 
-↓
+## Additional Docs
 
-Reasoning
-
-This combines semantic search with graph traversal.
-
----
-
-# Non Goals
-
-The system is NOT intended to:
-
-* Generate PRs
-* Automatically modify code
-* Replace developers
-* Act autonomously
-* Execute arbitrary repository changes
-
-The system is designed to help developers understand software.
-
----
-
-# Success Criteria
-
-MVP is successful when:
-
-1. ✅ Repository indexing works incrementally (Git Agent)
-2. ✅ Symbols can be queried accurately
-3. ✅ Documentation can be generated automatically
-4. ✅ Q&A answers are grounded in repository knowledge
-5. ✅ Entire workflow runs locally
-6. ✅ No external API dependencies are required
-
-**MVP Complete!** All success criteria have been met.
-
----
-
-# Long-Term Goal
-
-Become a local repository intelligence platform capable of understanding large codebases as well as experienced maintainers, while remaining privacy-first, language-aware, and fully developer-controlled.
-
+- [Installation Guide](docs/INSTALLATION.md)
+- [Configuration](docs/CONFIGURATION.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [Git Agent](docs/GIT_AGENT.md)
+- [Impact Analysis Agent](docs/IMPACT_ANALYSIS_AGENT.md)
+- [Multi-Language Support](docs/MULTI_LANGUAGE_SUPPORT.md)

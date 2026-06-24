@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from langgraph.graph import StateGraph, END
+from langgraph.graph import END, StateGraph
 
 from maris.core.models import IndexingResult, Symbol, SymbolType
 from maris.embeddings.ollama_embeddings import OllamaEmbeddingService
@@ -572,8 +572,8 @@ class IndexingAgent:
         """
         source_files = []
 
-        # Get supported extensions from ParserFactory
-        supported_extensions = ParserFactory.get_supported_extensions()
+        # Only scan extensions with implemented parsers.
+        supported_extensions = ParserFactory.get_implemented_extensions()
 
         for ext in supported_extensions:
             for file_path in self.repo_path.rglob(f"*{ext}"):

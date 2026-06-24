@@ -1,5 +1,9 @@
 # Indexing Agent Specification
 
+Last updated: 2026-06-24
+
+Status: Active
+
 ## Purpose
 Convert source code into structured knowledge by parsing repositories, extracting symbols, building dependency graphs, generating embeddings, and storing results in the Repository Knowledge Layer.
 
@@ -64,6 +68,8 @@ Storage (DuckDB + LanceDB)
 - **Constants**: UPPER_CASE assignments
 
 ### TypeScript
+Status: Planned. TypeScript extensions are mapped in `ParserFactory`, but no TypeScript parser is currently registered.
+
 - **Modules**: File-level scope
 - **Classes**: `class` declarations
 - **Interfaces**: `interface` declarations
@@ -274,12 +280,10 @@ SUPPORTED_LANGUAGES = {
         "extensions": [".py"],
         "tree_sitter_grammar": "tree-sitter-python"
     },
-    "typescript": {
-        "extensions": [".ts", ".tsx"],
-        "tree_sitter_grammar": "tree-sitter-typescript"
-    }
 }
 ```
+
+Planned extensions are also mapped in `ParserFactory` for Kotlin, JavaScript, TypeScript, Go, Bash, and Rust. Indexing should use `ParserFactory.get_implemented_extensions()` so planned languages are not presented as currently indexable.
 
 ### Exclusions
 ```python
@@ -345,7 +349,8 @@ class IndexingResult:
 - Edge cases (empty files, parse errors, large files)
 
 ## Acceptance Criteria
-- [x] Parse all MVP languages (Scala, Java, Python) - TypeScript pending
+- [x] Parse all implemented MVP languages (Scala, Java, Python)
+- [ ] TypeScript parser implemented and registered
 - [x] Extract symbols with >95% accuracy
 - [x] Build dependency graph correctly
 - [x] Generate embeddings for all symbols

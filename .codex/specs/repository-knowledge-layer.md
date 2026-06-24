@@ -1,5 +1,9 @@
 # Repository Knowledge Layer Specification
 
+Last updated: 2026-06-24
+
+Status: Active
+
 ## Purpose
 The Repository Knowledge Layer is the central abstraction that all agents use to interact with repository data. It provides a unified interface for symbol lookup, dependency traversal, semantic retrieval, and impact analysis.
 
@@ -212,8 +216,20 @@ for symbol in package_symbols:
 - [ ] Automatic relationship inference from usage patterns
 
 ## Acceptance Criteria
-- [ ] All interface methods implemented
-- [ ] Unit tests for each operation
-- [ ] Integration tests with real repository data
-- [ ] Performance targets met
-- [ ] Documentation complete with examples
+- [x] All interface methods implemented in `RepositoryKnowledgeImpl`
+- [x] Symbol lookup operations implemented
+- [x] Dependency traversal operations implemented
+- [x] Semantic retrieval operations implemented
+- [x] Impact analysis support operations implemented
+- [x] Repository stats and indexed-file checks implemented
+- [ ] Unit tests for each operation are complete and explicitly mapped to this interface
+- [ ] Integration tests with real repository data are complete
+- [ ] Performance targets are measured and published
+- [ ] Commit history behavior is fully backed by populated metadata in normal indexing flows
+- [x] Documentation includes examples
+
+## Current Gaps
+
+- History methods exist on the interface and implementation, but their usefulness depends on commit metadata being populated by indexing workflows.
+- Performance targets are specified but not backed by benchmark output in the repository.
+- Packaging metadata is not yet the single source of runtime dependencies; use `requirements.txt` for reliable local setup.

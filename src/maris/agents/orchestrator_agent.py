@@ -3,24 +3,20 @@
 import logging
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
-from langgraph.graph import StateGraph, END
+from langgraph.graph import END, StateGraph
 
-from maris.agents.qa_agent import QAAgent, Answer
-from maris.agents.indexing_agent import IndexingAgent
+from maris.agents.documentation_agent import DocumentationAgent
 from maris.agents.git_agent import GitAgent
-from maris.agents.documentation_agent import (
-    DocumentationAgent,
-    ModuleDocumentation,
-    ArchitectureOverview,
-)
 from maris.agents.impact_analysis_agent import ImpactAnalysisAgent
-from maris.core.models import IndexingResult, GitChangeSet, ImpactAnalysisResult
+from maris.agents.indexing_agent import IndexingAgent
+from maris.agents.qa_agent import Answer, QAAgent
+from maris.core.models import GitChangeSet, ImpactAnalysisResult, IndexingResult
+from maris.embeddings.ollama_embeddings import OllamaEmbeddingService
 from maris.knowledge.service import RepositoryKnowledgeService
 from maris.storage.metadata_store import MetadataStore
 from maris.storage.vector_store import VectorStore
-from maris.embeddings.ollama_embeddings import OllamaEmbeddingService
 
 logger = logging.getLogger(__name__)
 
@@ -29,10 +25,12 @@ class TaskType(Enum):
     """Types of tasks the orchestrator can handle."""
 
     QUESTION = "question"  # Answer questions about code
+    SEARCH = "search"  # Search indexed symbols
     INDEX = "index"  # Index repository or files
     INCREMENTAL_INDEX = "incremental_index"  # Incremental indexing based on Git changes
     DOCUMENT = "document"  # Generate documentation
     STATUS = "status"  # Get repository status
+    CLEAR_INDEX = "clear_index"  # Clear indexed repository data
     GIT_CHANGES = "git_changes"  # Detect Git changes
     IMPACT_ANALYSIS = "impact_analysis"  # Analyze code impact
     UNKNOWN = "unknown"
@@ -79,6 +77,8 @@ class OrchestratorAgent:
         repo_path: str,
         qa_model: str = "qwen2.5:7b",
         embedding_model: str = "nomic-embed-text",
+        ollama_host: Optional[str] = None,
+        embedding_service: Optional[OllamaEmbeddingService] = None,
     ):
         """
         Initialize the orchestrator agent.
@@ -90,6 +90,8 @@ class OrchestratorAgent:
             repo_path: Path to the repository
             qa_model: Model to use for Q&A
             embedding_model: Model to use for embeddings
+            ollama_host: Optional Ollama host URL
+            embedding_service: Optional preconfigured embedding service
         """
         self.knowledge_service = knowledge_service
         self.metadata_store = metadata_store
@@ -100,9 +102,13 @@ class OrchestratorAgent:
         self.qa_agent = QAAgent(
             knowledge_service=knowledge_service,
             model=qa_model,
+            host=ollama_host,
         )
 
-        embedding_service = OllamaEmbeddingService(model=embedding_model)
+        embedding_service = embedding_service or OllamaEmbeddingService(
+            model=embedding_model,
+            host=ollama_host,
+        )
         self.indexing_agent = IndexingAgent(
             metadata_store=metadata_store,
             vector_store=vector_store,
@@ -181,6 +187,9 @@ class OrchestratorAgent:
                     "break",
                     "breaking change",
                     "edge case",
+                    "tests cover",
+                    "test covers",
+                    "which tests",
                     "test coverage",
                     "caller",
                     "callee",
@@ -196,6 +205,9 @@ class OrchestratorAgent:
                 for keyword in ["git changes", "detect changes", "what changed"]
             ):
                 state["classified_task"] = TaskType.GIT_CHANGES
+            # Check for search keywords
+            elif any(keyword in request_lower for keyword in ["search", "find symbol"]):
+                state["classified_task"] = TaskType.SEARCH
             # Check for incremental indexing keywords
             elif any(
                 keyword in request_lower
@@ -205,6 +217,12 @@ class OrchestratorAgent:
             # Check for status keywords (more specific than "index")
             elif any(keyword in request_lower for keyword in ["status", "stats", "statistics"]):
                 state["classified_task"] = TaskType.STATUS
+            # Check for clearing indexed data
+            elif any(
+                keyword in request_lower
+                for keyword in ["clear index", "clear indexed data", "reset index"]
+            ):
+                state["classified_task"] = TaskType.CLEAR_INDEX
             # Check for indexing keywords
             elif any(keyword in request_lower for keyword in ["index", "scan", "parse", "extract"]):
                 state["classified_task"] = TaskType.INDEX
@@ -254,10 +272,12 @@ class OrchestratorAgent:
             # Map task types to agents
             agent_mapping = {
                 TaskType.QUESTION: "qa_agent",
+                TaskType.SEARCH: "repository_knowledge",
                 TaskType.INDEX: "indexing_agent",
                 TaskType.INCREMENTAL_INDEX: "indexing_agent",  # Uses indexing agent with Git changes
                 TaskType.DOCUMENT: "documentation_agent",
                 TaskType.STATUS: "indexing_agent",  # Status comes from indexing agent
+                TaskType.CLEAR_INDEX: "indexing_agent",
                 TaskType.GIT_CHANGES: "git_agent",
                 TaskType.IMPACT_ANALYSIS: "impact_analysis_agent",
                 TaskType.UNKNOWN: None,
@@ -302,14 +322,27 @@ class OrchestratorAgent:
             # Execute based on agent and task type
             if selected_agent == "qa_agent":
                 question = state.get("request", "")
-                result = self.qa_agent.answer_question(question)
+                result = self.qa_agent.answer_question(
+                    question,
+                    max_symbols=state.get("max_symbols", 10),
+                )
+
+            elif selected_agent == "repository_knowledge":
+                query = state.get("request", "")
+                result = self.knowledge_service.semantic_search(
+                    query,
+                    limit=state.get("max_results", 20),
+                )
 
             elif selected_agent == "indexing_agent":
                 if task_type == TaskType.STATUS:
                     result = self.indexing_agent.get_indexing_status()
+                elif task_type == TaskType.CLEAR_INDEX:
+                    result = self._clear_indexed_data()
                 elif task_type == TaskType.INCREMENTAL_INDEX:
                     # Detect changes and index only changed files
                     changeset = self.git_agent.detect_changes()
+                    state["changeset"] = changeset
                     if changeset.has_changes:
                         logger.info(f"Incremental indexing {changeset.total_changes} changed files")
                         result = self.indexing_agent.index_files(changeset.files_to_reindex)
@@ -411,6 +444,9 @@ class OrchestratorAgent:
                     "request": state.get("request", ""),
                     "file_paths": state.get("file_paths"),
                     "file_path": state.get("file_path"),
+                    "max_results": state.get("max_results"),
+                    "max_symbols": state.get("max_symbols"),
+                    "changeset": state.get("changeset"),
                 },
             )
 
@@ -438,6 +474,8 @@ class OrchestratorAgent:
         format: str = "object",
         symbol_name: Optional[str] = None,
         analysis_type: Optional[str] = None,
+        max_results: int = 20,
+        max_symbols: int = 10,
     ) -> OrchestratorResult:
         """
         Execute a request by routing to the appropriate agent.
@@ -450,6 +488,8 @@ class OrchestratorAgent:
             format: Output format (object or markdown)
             symbol_name: Optional symbol name for impact analysis
             analysis_type: Optional analysis type for impact analysis
+            max_results: Maximum search results for search tasks
+            max_symbols: Maximum symbols for Q&A context retrieval
 
         Returns:
             OrchestratorResult with execution details
@@ -465,6 +505,8 @@ class OrchestratorAgent:
             "format": format,
             "symbol_name": symbol_name,
             "analysis_type": analysis_type,
+            "max_results": max_results,
+            "max_symbols": max_symbols,
             "classified_task": None,
             "selected_agent": None,
             "execution_result": None,
@@ -501,21 +543,39 @@ class OrchestratorAgent:
 
     # Convenience methods for common operations
 
-    def ask_question(self, question: str) -> Answer:
+    def ask_question(self, question: str, max_symbols: int = 10) -> Answer:
         """
         Ask a question about the repository.
 
         Args:
             question: Natural language question
+            max_symbols: Maximum symbols to retrieve for context
 
         Returns:
             Answer from QA agent
         """
-        result = self.execute(question, task_type="question")
+        result = self.execute(question, task_type="question", max_symbols=max_symbols)
         if result.success:
             return result.result
         else:
             raise Exception(f"Failed to answer question: {result.error}")
+
+    def search_symbols(self, query: str, max_results: int = 10) -> List[Tuple[Any, float]]:
+        """
+        Search indexed symbols.
+
+        Args:
+            query: Search query
+            max_results: Maximum number of results
+
+        Returns:
+            List of (Symbol, score) tuples
+        """
+        result = self.execute(query, task_type="search", max_results=max_results)
+        if result.success:
+            return result.result
+        else:
+            raise Exception(f"Failed to search symbols: {result.error}")
 
     def index_repository(self) -> IndexingResult:
         """
@@ -581,6 +641,19 @@ class OrchestratorAgent:
         else:
             raise Exception(f"Failed to get status: {result.error}")
 
+    def clear_index(self) -> dict:
+        """
+        Clear all indexed repository data.
+
+        Returns:
+            Summary of cleared stores.
+        """
+        result = self.execute("Clear indexed data", task_type="clear_index")
+        if result.success:
+            return result.result
+        else:
+            raise Exception(f"Failed to clear indexed data: {result.error}")
+
     def detect_git_changes(self) -> GitChangeSet:
         """
         Detect Git changes since last indexing.
@@ -635,6 +708,48 @@ class OrchestratorAgent:
             return result.result
         else:
             raise Exception(f"Failed to analyze impact: {result.error}")
+
+    def format_impact_report(self, result: ImpactAnalysisResult) -> str:
+        """Format an impact analysis result as human-readable markdown."""
+        return self.impact_analysis_agent.format_report_text(result)
+
+    def _clear_indexed_data(self) -> dict:
+        """Clear indexed metadata and vector data."""
+        if getattr(self.metadata_store, "conn", None) is None:
+            raise RuntimeError("Metadata store not initialized")
+
+        tables = [
+            "dependencies",
+            "symbols",
+            "commits",
+            "commit_symbols",
+            "files",
+            "indexing_metadata",
+        ]
+        cleared_tables = []
+
+        for table in tables:
+            self.metadata_store.conn.execute(f"DELETE FROM {table}")
+            cleared_tables.append(table)
+
+        self.metadata_store.conn.commit()
+
+        vector_table = getattr(self.vector_store, "table_name", "embeddings")
+        vector_cleared = False
+
+        if getattr(self.vector_store, "db", None) is not None:
+            try:
+                self.vector_store.db.drop_table(vector_table)
+                vector_cleared = True
+            except Exception:
+                vector_cleared = False
+            self.vector_store.initialize()
+
+        return {
+            "metadata_tables": cleared_tables,
+            "vector_table": vector_table,
+            "vector_cleared": vector_cleared,
+        }
 
 
 # Made with Bob

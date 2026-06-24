@@ -1,17 +1,14 @@
 """Tests for the Orchestrator Agent."""
 
-import pytest
-from unittest.mock import Mock, MagicMock, patch
 from pathlib import Path
+from unittest.mock import Mock
 
-from maris.agents.orchestrator_agent import (
-    OrchestratorAgent,
-    TaskType,
-    OrchestratorResult,
-)
+import pytest
+
+from maris.agents.documentation_agent import ArchitectureOverview, ModuleDocumentation
+from maris.agents.orchestrator_agent import OrchestratorAgent, TaskType
 from maris.agents.qa_agent import Answer
-from maris.agents.documentation_agent import ModuleDocumentation, ArchitectureOverview
-from maris.core.models import IndexingResult, Symbol
+from maris.core.models import IndexingResult, Symbol, SymbolType
 
 
 @pytest.fixture
@@ -41,6 +38,20 @@ def mock_vector_store():
     store.store_embedding.return_value = None
     store.search.return_value = []
     return store
+
+
+@pytest.fixture
+def sample_symbol():
+    """Create a sample symbol for search results."""
+    return Symbol(
+        id="test-symbol",
+        name="test_function",
+        type=SymbolType.FUNCTION,
+        file_path="test.py",
+        language="python",
+        start_line=1,
+        end_line=5,
+    )
 
 
 @pytest.fixture
@@ -74,6 +85,8 @@ class TestOrchestratorAgentInitialization:
         assert hasattr(orchestrator_agent, "qa_agent")
         assert hasattr(orchestrator_agent, "indexing_agent")
         assert hasattr(orchestrator_agent, "documentation_agent")
+        assert hasattr(orchestrator_agent, "git_agent")
+        assert hasattr(orchestrator_agent, "impact_analysis_agent")
 
 
 class TestTaskClassification:
@@ -114,6 +127,24 @@ class TestTaskClassification:
         }
         result = orchestrator_agent._classify_task(state)
         assert result["classified_task"] == TaskType.STATUS
+
+    def test_classify_search_task(self, orchestrator_agent):
+        """Test classification of search tasks."""
+        state = {
+            "request": "Search for RepositoryKnowledge",
+            "task_type": None,
+        }
+        result = orchestrator_agent._classify_task(state)
+        assert result["classified_task"] == TaskType.SEARCH
+
+    def test_classify_tests_cover_as_impact_task(self, orchestrator_agent):
+        """Test that test coverage wording routes to impact analysis."""
+        state = {
+            "request": "Which tests cover GitAgent.detect_changes?",
+            "task_type": None,
+        }
+        result = orchestrator_agent._classify_task(state)
+        assert result["classified_task"] == TaskType.IMPACT_ANALYSIS
 
     def test_explicit_task_type(self, orchestrator_agent):
         """Test that explicit task type is used when provided."""
@@ -179,6 +210,22 @@ class TestAgentRouting:
         result = orchestrator_agent._route_to_agent(state)
         assert result["selected_agent"] == "indexing_agent"
 
+    def test_route_to_repository_knowledge_for_search(self, orchestrator_agent):
+        """Test routing search tasks to repository knowledge."""
+        state = {
+            "classified_task": TaskType.SEARCH,
+        }
+        result = orchestrator_agent._route_to_agent(state)
+        assert result["selected_agent"] == "repository_knowledge"
+
+    def test_route_clear_index_to_indexing_agent(self, orchestrator_agent):
+        """Test routing clear-index tasks through the indexing boundary."""
+        state = {
+            "classified_task": TaskType.CLEAR_INDEX,
+        }
+        result = orchestrator_agent._route_to_agent(state)
+        assert result["selected_agent"] == "indexing_agent"
+
     def test_route_unknown_task(self, orchestrator_agent):
         """Test routing of unknown task type."""
         state = {
@@ -221,7 +268,67 @@ class TestTaskExecution:
 
         assert result["success"] is True
         assert result["execution_result"] == mock_answer
-        orchestrator_agent.qa_agent.answer_question.assert_called_once_with("What is this?")
+        orchestrator_agent.qa_agent.answer_question.assert_called_once_with(
+            "What is this?", max_symbols=10
+        )
+
+    def test_execute_qa_task_with_max_symbols(self, orchestrator_agent):
+        """Test that max_symbols is passed to QA agent."""
+        mock_answer = Answer(
+            question="What is this?",
+            answer="Test answer",
+            relevant_symbols=[],
+            confidence="high",
+            sources=[],
+        )
+        orchestrator_agent.qa_agent.answer_question = Mock(return_value=mock_answer)
+
+        state = {
+            "selected_agent": "qa_agent",
+            "classified_task": TaskType.QUESTION,
+            "request": "What is this?",
+            "max_symbols": 3,
+        }
+        result = orchestrator_agent._execute_task(state)
+
+        assert result["success"] is True
+        orchestrator_agent.qa_agent.answer_question.assert_called_once_with(
+            "What is this?", max_symbols=3
+        )
+
+    def test_execute_search_task(self, orchestrator_agent, sample_symbol):
+        """Test execution of search task through repository knowledge."""
+        search_results = [(sample_symbol, 0.9)]
+        orchestrator_agent.knowledge_service.semantic_search = Mock(return_value=search_results)
+
+        state = {
+            "selected_agent": "repository_knowledge",
+            "classified_task": TaskType.SEARCH,
+            "request": "test_function",
+            "max_results": 5,
+        }
+        result = orchestrator_agent._execute_task(state)
+
+        assert result["success"] is True
+        assert result["execution_result"] == search_results
+        orchestrator_agent.knowledge_service.semantic_search.assert_called_once_with(
+            "test_function", limit=5
+        )
+
+    def test_execute_clear_index_task(self, orchestrator_agent):
+        """Test execution of clear-index task through orchestrator."""
+        clear_result = {"metadata_tables": ["symbols"], "vector_table": "embeddings"}
+        orchestrator_agent._clear_indexed_data = Mock(return_value=clear_result)
+
+        state = {
+            "selected_agent": "indexing_agent",
+            "classified_task": TaskType.CLEAR_INDEX,
+        }
+        result = orchestrator_agent._execute_task(state)
+
+        assert result["success"] is True
+        assert result["execution_result"] == clear_result
+        orchestrator_agent._clear_indexed_data.assert_called_once()
 
     def test_execute_index_repository_task(self, orchestrator_agent):
         """Test execution of repository indexing task."""

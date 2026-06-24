@@ -7,17 +7,16 @@ from typing import Optional
 
 import click
 from rich.console import Console
-from rich.table import Table
-from rich.panel import Panel
 from rich.markdown import Markdown
+from rich.panel import Panel
+from rich.table import Table
 
+from maris.agents.orchestrator_agent import OrchestratorAgent
 from maris.config import MarisConfig, load_config
-from maris.core.models import Symbol
-from maris.storage.metadata_store import DuckDBMetadataStore
-from maris.storage.vector_store import LanceDBVectorStore
 from maris.embeddings.ollama_embeddings import OllamaEmbeddingService
 from maris.knowledge.repository_knowledge_impl import RepositoryKnowledgeImpl
-from maris.agents.orchestrator_agent import OrchestratorAgent, TaskType
+from maris.storage.metadata_store import DuckDBMetadataStore
+from maris.storage.vector_store import LanceDBVectorStore
 from maris.utils.validation import validate_with_helpful_errors
 
 console = Console()
@@ -105,6 +104,12 @@ class MarisContext:
                 repo_path=str(Path.cwd()),  # Use current directory as repo path
                 qa_model=self.config.qa_model,
                 embedding_model=self.config.embedding_model,
+                ollama_host=(
+                    self.config.ollama_host
+                    if self.config.ollama_host != "http://localhost:11434"
+                    else None
+                ),
+                embedding_service=self.embedding_service,
             )
 
         except Exception as e:
@@ -192,41 +197,7 @@ def index(
                     "[yellow]Warning: --incremental flag ignores the path argument[/yellow]"
                 )
 
-            console.print("[cyan]Detecting changes since last indexing...[/cyan]")
-
-            with console.status("[bold green]Detecting Git changes..."):
-                result = ctx.orchestrator.execute(
-                    request="Detect Git changes",
-                    task_type="git_changes",
-                )
-
-            if not result.success:
-                console.print(f"[red]✗ Failed to detect changes: {result.error}[/red]")
-                console.print("[yellow]Tip: Make sure you're in a Git repository[/yellow]")
-                return
-
-            changeset = result.result
-
-            if not changeset.has_changes:
-                console.print("[green]✓ No changes detected since last indexing[/green]")
-                console.print(f"[dim]Last indexed commit: {changeset.last_commit or 'N/A'}[/dim]")
-                console.print(f"[dim]Current commit: {changeset.current_commit}[/dim]")
-                return
-
-            # Display changes
-            console.print(f"\n[bold]Changes detected:[/bold]")
-            if changeset.added_files:
-                console.print(f"  [green]Added: {len(changeset.added_files)} files[/green]")
-            if changeset.modified_files:
-                console.print(f"  [yellow]Modified: {len(changeset.modified_files)} files[/yellow]")
-            if changeset.deleted_files:
-                console.print(f"  [red]Deleted: {len(changeset.deleted_files)} files[/red]")
-            if changeset.renamed_files:
-                console.print(f"  [blue]Renamed: {len(changeset.renamed_files)} files[/blue]")
-
-            console.print(
-                f"\n[cyan]Performing incremental indexing of {changeset.total_changes} changed files...[/cyan]"
-            )
+            console.print("[cyan]Performing incremental indexing...[/cyan]")
 
             with console.status("[bold green]Indexing changed files..."):
                 result = ctx.orchestrator.execute(
@@ -234,22 +205,46 @@ def index(
                     task_type="incremental_index",
                 )
 
-            if result.success:
-                indexing_result = result.result
-                console.print(f"\n[bold green]✓ Incremental indexing complete![/bold green]")
-                console.print(f"  Files processed: {indexing_result.files_processed}")
-                console.print(f"  Symbols extracted: {indexing_result.symbols_extracted}")
-                console.print(f"  Embeddings generated: {indexing_result.embeddings_generated}")
-                console.print(f"  Duration: {indexing_result.duration_seconds:.2f}s")
-
-                if indexing_result.errors:
-                    console.print(
-                        f"\n[yellow]Errors encountered: {len(indexing_result.errors)}[/yellow]"
-                    )
-                    for error in indexing_result.errors[:5]:
-                        console.print(f"  • {error}")
-            else:
+            if not result.success:
                 console.print(f"[red]✗ Incremental indexing failed: {result.error}[/red]")
+                console.print("[yellow]Tip: Make sure you're in a Git repository[/yellow]")
+                return
+
+            changeset = result.metadata.get("changeset") if result.metadata else None
+
+            if changeset and not changeset.has_changes:
+                console.print("[green]✓ No changes detected since last indexing[/green]")
+                console.print(f"[dim]Last indexed commit: {changeset.last_commit or 'N/A'}[/dim]")
+                console.print(f"[dim]Current commit: {changeset.current_commit}[/dim]")
+                return
+
+            # Display changes
+            if changeset:
+                console.print("\n[bold]Changes detected:[/bold]")
+                if changeset.added_files:
+                    console.print(f"  [green]Added: {len(changeset.added_files)} files[/green]")
+                if changeset.modified_files:
+                    console.print(
+                        f"  [yellow]Modified: {len(changeset.modified_files)} files[/yellow]"
+                    )
+                if changeset.deleted_files:
+                    console.print(f"  [red]Deleted: {len(changeset.deleted_files)} files[/red]")
+                if changeset.renamed_files:
+                    console.print(f"  [blue]Renamed: {len(changeset.renamed_files)} files[/blue]")
+
+            indexing_result = result.result
+            console.print("\n[bold green]✓ Incremental indexing complete![/bold green]")
+            console.print(f"  Files processed: {indexing_result.files_processed}")
+            console.print(f"  Symbols extracted: {indexing_result.symbols_extracted}")
+            console.print(f"  Embeddings generated: {indexing_result.embeddings_generated}")
+            console.print(f"  Duration: {indexing_result.duration_seconds:.2f}s")
+
+            if indexing_result.errors:
+                console.print(
+                    f"\n[yellow]Errors encountered: {len(indexing_result.errors)}[/yellow]"
+                )
+                for error in indexing_result.errors[:5]:
+                    console.print(f"  • {error}")
 
             return
 
@@ -311,7 +306,7 @@ def index(
 
         if result.success:
             indexing_result = result.result
-            console.print(f"\n[bold green]✓ Indexing complete![/bold green]")
+            console.print("\n[bold green]✓ Indexing complete![/bold green]")
             console.print(f"  Files processed: {indexing_result.files_processed}")
             console.print(f"  Symbols extracted: {indexing_result.symbols_extracted}")
             console.print(f"  Embeddings generated: {indexing_result.embeddings_generated}")
@@ -343,7 +338,7 @@ def search(ctx: MarisContext, query: str, max_results: int):
     ctx.initialize()
 
     try:
-        results = ctx.knowledge_service.semantic_search(query, max_results)
+        results = ctx.orchestrator.search_symbols(query, max_results)
 
         if not results:
             console.print("[yellow]No results found[/yellow]")
@@ -433,6 +428,7 @@ def ask(ctx: MarisContext, question: str, max_symbols: int):
             result = ctx.orchestrator.execute(
                 request=question,
                 task_type="question",
+                max_symbols=max_symbols,
             )
 
         if result.success:
@@ -507,7 +503,7 @@ def analyze(ctx: MarisContext, symbol: Optional[str], file_path: Optional[str], 
         sys.exit(1)
 
     try:
-        with console.status(f"[bold green]Analyzing impact..."):
+        with console.status("[bold green]Analyzing impact..."):
             result = ctx.orchestrator.analyze_impact(
                 symbol_name=symbol, file_path=file_path, analysis_type="impact"
             )
@@ -517,11 +513,7 @@ def analyze(ctx: MarisContext, symbol: Optional[str], file_path: Optional[str], 
 
             console.print_json(json.dumps(result.to_dict(), indent=2))
         else:
-            # Format as human-readable report
-            from maris.agents.impact_analysis_agent import ImpactAnalysisAgent
-
-            agent = ImpactAnalysisAgent(knowledge_service=ctx.knowledge_service)
-            report = agent.format_report_text(result)
+            report = ctx.orchestrator.format_impact_report(result)
             console.print(Markdown(report))
 
     except Exception as e:
@@ -555,7 +547,7 @@ def edge_cases(ctx: MarisContext, symbol: Optional[str], file_path: Optional[str
         sys.exit(1)
 
     try:
-        with console.status(f"[bold green]Detecting edge cases..."):
+        with console.status("[bold green]Detecting edge cases..."):
             result = ctx.orchestrator.analyze_impact(
                 symbol_name=symbol, file_path=file_path, analysis_type="edge_cases"
             )
@@ -564,7 +556,7 @@ def edge_cases(ctx: MarisContext, symbol: Optional[str], file_path: Optional[str
         if result.edge_cases:
             console.print(f"\n[bold]Edge Cases for {result.target_symbol.name}:[/bold]\n")
 
-            for i, edge_case in enumerate(result.edge_cases, 1):
+            for edge_case in result.edge_cases:
                 severity_color = {"high": "red", "medium": "yellow", "low": "blue"}.get(
                     edge_case.severity, "white"
                 )
@@ -611,7 +603,7 @@ def tests(ctx: MarisContext, symbol: Optional[str], file_path: Optional[str]):
         sys.exit(1)
 
     try:
-        with console.status(f"[bold green]Analyzing test coverage..."):
+        with console.status("[bold green]Analyzing test coverage..."):
             result = ctx.orchestrator.analyze_impact(
                 symbol_name=symbol, file_path=file_path, analysis_type="tests"
             )
@@ -664,7 +656,7 @@ def breaking_changes(ctx: MarisContext, symbol: Optional[str], file_path: Option
         sys.exit(1)
 
     try:
-        with console.status(f"[bold green]Detecting breaking changes..."):
+        with console.status("[bold green]Detecting breaking changes..."):
             result = ctx.orchestrator.analyze_impact(
                 symbol_name=symbol, file_path=file_path, analysis_type="breaking_changes"
             )
@@ -744,28 +736,20 @@ def stats(ctx: MarisContext):
     ctx.initialize()
 
     try:
-        # Query all symbols
-        conn = ctx.metadata_store.conn
-        result = conn.execute(
-            "SELECT type, COUNT(*) as count FROM symbols GROUP BY type"
-        ).fetchall()
-
-        total_symbols = sum(row[1] for row in result)
-
-        # Get file count
-        file_result = conn.execute("SELECT COUNT(DISTINCT file_path) FROM symbols").fetchone()
-        file_count = file_result[0] if file_result else 0
+        status = ctx.orchestrator.get_status()
 
         # Display statistics
         table = Table(title="Repository Statistics")
         table.add_column("Metric", style="cyan")
-        table.add_column("Count", style="green", justify="right")
+        table.add_column("Value", style="green", justify="right")
 
-        table.add_row("Total Symbols", str(total_symbols))
-        table.add_row("Indexed Files", str(file_count))
-
-        for symbol_type, count in result:
-            table.add_row(f"  {symbol_type.capitalize()}s", str(count))
+        table.add_row("Repository", status["repository_path"])
+        table.add_row("Indexed Files", str(status["total_files"]))
+        table.add_row("Total Symbols", str(status["total_symbols"]))
+        table.add_row("Dependencies", str(status["total_dependencies"]))
+        table.add_row("Embeddings", str(status["total_embeddings"]))
+        table.add_row("Languages", ", ".join(status["languages"]) or "N/A")
+        table.add_row("Last Indexed", str(status["last_indexed"] or "N/A"))
 
         console.print(table)
 
@@ -785,16 +769,7 @@ def clear(ctx: MarisContext):
     ctx.initialize()
 
     try:
-        # Clear metadata store
-        ctx.metadata_store.conn.execute("DELETE FROM symbols")
-        ctx.metadata_store.conn.execute("DELETE FROM dependencies")
-        ctx.metadata_store.conn.execute("DELETE FROM commits")
-
-        # Clear vector store
-        try:
-            ctx.vector_store.db.drop_table("symbols")
-        except Exception:
-            pass  # Table might not exist
+        ctx.orchestrator.clear_index()
 
         console.print("[green]✓ All indexed data cleared[/green]")
 

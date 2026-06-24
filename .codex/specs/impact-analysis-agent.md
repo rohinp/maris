@@ -1,7 +1,9 @@
 # Impact Analysis Agent Specification
 
+Last updated: 2026-06-24
+
 ## Status
-📋 **Planned** - Post-MVP Enhancement
+✅ **Implemented** (June 2026)
 
 ## Purpose
 Analyze the impact of code changes, identify edge cases, suggest test scenarios, and help developers understand what will be affected by modifications.
@@ -14,7 +16,7 @@ When implementing new features or modifying existing code, developers need to un
 - What might break if this changes?
 - What similar patterns exist in the codebase?
 
-The QA Agent can answer some of these questions, but a specialized Impact Analysis Agent would provide more structured, actionable insights.
+The QA Agent can answer some of these questions, but the specialized Impact Analysis Agent provides more structured, actionable insights through explicit CLI commands and orchestrator routing.
 
 ## Responsibilities
 
@@ -307,29 +309,29 @@ maris ask "What tests cover the detect_changes method?"
 ## Implementation Phases
 
 ### Phase 1: Basic Dependency Analysis
-- Implement call graph traversal
-- Find direct callers and callees
-- Identify affected files
+- [x] Implement call graph traversal
+- [x] Find direct callers and callees
+- [x] Identify affected files
 
 ### Phase 2: Test Discovery
-- Find tests that cover symbols
-- Identify test gaps
-- Suggest test scenarios
+- [x] Find tests that cover symbols
+- [x] Identify test gaps
+- [x] Suggest test scenarios
 
 ### Phase 3: Edge Case Detection
-- Analyze code paths
-- Detect error conditions
-- Identify boundary conditions
+- [x] Analyze code paths
+- [x] Detect error conditions
+- [x] Identify boundary conditions
 
 ### Phase 4: Breaking Change Detection
-- Compare signatures
-- Detect interface changes
-- Identify breaking changes
+- [x] Compare signatures
+- [x] Detect interface changes
+- [x] Identify breaking changes
 
 ### Phase 5: Pattern Analysis
-- Find similar implementations
-- Identify common patterns
-- Suggest refactoring opportunities
+- [ ] Find similar implementations
+- [ ] Identify common patterns
+- [ ] Suggest refactoring opportunities
 
 ## Technical Approach
 
@@ -379,14 +381,16 @@ maris ask "What tests cover the detect_changes method?"
 
 ## Acceptance Criteria
 
-- [ ] Implement basic dependency analysis
-- [ ] Implement test discovery
-- [ ] Implement edge case detection
-- [ ] Integrate with OrchestratorAgent
-- [ ] Add CLI commands
-- [ ] Create comprehensive tests
-- [ ] Document usage and examples
-- [ ] Achieve >80% test coverage
+- [x] Implement basic dependency analysis
+- [x] Implement test discovery
+- [x] Implement edge case detection
+- [x] Implement breaking-change analysis
+- [x] Integrate with OrchestratorAgent
+- [x] Add CLI commands
+- [x] Create tests for core behavior
+- [x] Document usage and examples
+- [ ] Achieve and publish >80% test coverage for this agent
+- [ ] Implement advanced pattern analysis
 
 ## Future Enhancements
 
@@ -411,13 +415,11 @@ maris ask "What tests cover the detect_changes method?"
 - [Repository Knowledge Layer](./repository-knowledge-layer.md) - Data source
 - [Indexing Agent](./indexing-agent.md) - Symbol and dependency data
 
-## Estimated Effort
-- **Phase 1 (Basic)**: 2-3 weeks
-- **Phase 2-3 (Core)**: 3-4 weeks
-- **Phase 4-5 (Advanced)**: 2-3 weeks
-- **Total**: 7-10 weeks for full implementation
+## Remaining Work
 
-## Priority
-**Medium-High** - Valuable for development workflow, but MVP is functional without it.
+- Advanced pattern analysis
+- More real-repository regression scenarios
+- Published coverage measurement for the agent-specific test suite
+- Optional dependency graph visualization
 
 ## Made with Bob
