@@ -69,31 +69,41 @@ maris --help
 
 Run MARIS from the repository you want to analyze. By default, MARIS stores project-specific data in `.maris/` in the current working directory unless `MARIS_DATA_DIR` is set.
 
+### ⚠️ Important: Index First
+
+**You must index your repository before using search, ask, explain, or document commands.** MARIS does not auto-index; indexing is an explicit step that builds the knowledge base.
+
 ```bash
-# Index supported source files recursively
+# Step 1: Index your repository (required first step)
 maris index src/ --recursive
 
-# Show indexed repository statistics
+# Step 2: Verify indexing completed
 maris stats
 
+# Step 3: Now you can use other commands
 # Search indexed symbols
 maris search "RepositoryKnowledge"
 
-# Ask a question grounded in indexed symbols
+# Ask questions about your codebase
 maris ask "How does indexing work?"
 
-# Explain a symbol
+# Explain specific symbols
 maris explain IndexingAgent
 
-# Generate documentation for one file
+# Generate documentation
 maris document src/maris/agents/indexing_agent.py --output docs/indexing_agent.md
 ```
 
-Incremental indexing uses Git change detection:
+### Incremental Indexing
+
+After the initial index, use incremental indexing to update only changed files:
 
 ```bash
+# Re-index only files that changed since last index
 maris index --incremental
 ```
+
+This is much faster than re-indexing the entire repository.
 
 Impact analysis examples:
 

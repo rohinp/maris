@@ -10,6 +10,22 @@ After installing MARIS, the `maris` command will be available:
 pip install -e .
 ```
 
+## ⚠️ Important: Index Before Using
+
+**Most MARIS commands require you to index your repository first.** Commands like `search`, `ask`, `explain`, and `document` all depend on the indexed knowledge base. MARIS does not auto-index.
+
+**Quick start workflow:**
+```bash
+# 1. Index your repository (required first step)
+maris index src/ --recursive
+
+# 2. Verify indexing
+maris stats
+
+# 3. Now use other commands
+maris ask "How does this work?"
+```
+
 ## Global Options
 
 All commands support these global options:
@@ -65,6 +81,8 @@ maris --data-dir ./project-data index src/ -r
 
 Search for symbols in the indexed repository using semantic search.
 
+**Prerequisites:** ⚠️ **Requires prior indexing** with `maris index`.
+
 **Usage:**
 ```bash
 maris search QUERY [OPTIONS]
@@ -98,6 +116,8 @@ Displays a table with:
 
 Get a detailed explanation of a specific symbol.
 
+**Prerequisites:** ⚠️ **Requires prior indexing** with `maris index`.
+
 **Usage:**
 ```bash
 maris explain SYMBOL_NAME
@@ -127,6 +147,8 @@ maris explain PythonParser.extract_symbols
 
 Ask natural language questions about your codebase.
 
+**Prerequisites:** ⚠️ **You must index your repository first** using `maris index`. If the repository is not indexed, you will get poor or empty answers.
+
 **Usage:**
 ```bash
 maris ask QUESTION [OPTIONS]
@@ -155,6 +177,10 @@ maris ask "How does error handling work?" --max-symbols 20
 - Relevant symbols referenced
 - Confidence level
 - Source files
+
+**Troubleshooting:**
+- If you get "no relevant context found" or low confidence answers, make sure you've indexed your repository
+- Use `maris stats` to verify indexing status
 
 ---
 
@@ -380,13 +406,15 @@ ollama pull nomic-embed-text
 ollama pull qwen2.5:7b
 ```
 
-### "No results found" when searching
+### "No results found" when searching or asking
 
-Make sure you've indexed your repository:
+**This is the most common issue.** Make sure you've indexed your repository first:
 ```bash
 maris stats  # Check if anything is indexed
 maris index . --recursive  # Index if needed
 ```
+
+MARIS does not auto-index. You must explicitly run `maris index` before using search, ask, explain, or document commands.
 
 ### Slow indexing
 

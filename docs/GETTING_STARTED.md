@@ -48,6 +48,10 @@ ollama pull qwen2.5:32b     # Recommended - best balance
 
 ## Quick Start
 
+### ⚠️ Important: Index First
+
+**MARIS requires explicit indexing before you can search, ask questions, or generate documentation.** MARIS does not auto-index repositories.
+
 ### 1. Initialize MARIS for a Repository
 
 ```python
@@ -69,13 +73,15 @@ agent = IndexingAgent(
     repo_path="/path/to/your/repository"
 )
 
-# Index the repository
+# STEP 1: Index the repository (required first step)
 result = agent.index_repository()
 print(f"Indexed {result.files_processed} files")
 print(f"Extracted {result.symbols_extracted} symbols")
 ```
 
 ### 2. Query Repository Information
+
+**After indexing**, you can query the repository:
 
 ```python
 # Get repository statistics
@@ -87,6 +93,21 @@ print(f"Languages: {stats['languages']}")
 symbols = metadata_store.find_symbols_by_name("MyClass")
 for symbol in symbols:
     print(f"{symbol.name} in {symbol.file_path}:{symbol.start_line}")
+```
+
+### 3. CLI Quick Start
+
+```bash
+# Step 1: Index your repository (required)
+maris index src/ --recursive
+
+# Step 2: Verify indexing
+maris stats
+
+# Step 3: Use other commands
+maris search "MyClass"
+maris ask "How does the parser work?"
+maris explain IndexingAgent
 ```
 
 ## Project Structure
