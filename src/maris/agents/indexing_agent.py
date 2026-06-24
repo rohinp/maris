@@ -78,16 +78,66 @@ class IndexingAgent:
             },
         }
 
-        # Exclusion patterns
+        # Exclusion patterns - common directories and files to skip
         self.excluded_patterns = [
-            "*/node_modules/*",
-            "*/target/*",
-            "*/build/*",
+            # Version control
             "*/.git/*",
-            "*/dist/*",
+            "*/.svn/*",
+            "*/.hg/*",
+            # Python
             "*/__pycache__/*",
+            "*/.venv/*",
+            "*/venv/*",
+            "*/env/*",
+            "*/.env",
+            "*.pyc",
+            "*.pyo",
+            "*.pyd",
+            "*/.pytest_cache/*",
+            "*/.mypy_cache/*",
+            "*/.tox/*",
+            "*/site-packages/*",
+            "*/dist-packages/*",
+            # Node.js / JavaScript
+            "*/node_modules/*",
+            "*/bower_components/*",
             "*.min.js",
             "*.bundle.js",
+            "*/.npm/*",
+            "*/.yarn/*",
+            # Java / JVM
+            "*/target/*",
+            "*/build/*",
+            "*/.gradle/*",
+            "*/.m2/*",
+            "*.class",
+            # Build outputs
+            "*/dist/*",
+            "*/out/*",
+            "*/bin/*",
+            "*/.next/*",
+            "*/.nuxt/*",
+            # IDE / Editor
+            "*/.idea/*",
+            "*/.vscode/*",
+            "*/.vs/*",
+            "*.swp",
+            "*.swo",
+            "*~",
+            # OS
+            "*/.DS_Store",
+            "*/Thumbs.db",
+            # Logs and temp files
+            "*.log",
+            "*/logs/*",
+            "*/tmp/*",
+            "*/temp/*",
+            # Dependencies and vendor
+            "*/vendor/*",
+            "*/vendors/*",
+            # Documentation builds
+            "*/_build/*",
+            "*/docs/_build/*",
         ]
 
         # Build the LangGraph workflow

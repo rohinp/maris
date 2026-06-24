@@ -67,9 +67,33 @@ MARIS_OLLAMA_HOST=http://192.168.1.100:11434
 - `mxbai-embed-large` - Higher quality, slower
 - `all-minilm` - Lightweight, faster
 
+**⚠️ Important: Context Length for Large Files**
+
+If you encounter errors like "input length exceeds context length", you need to increase the model's context window:
+
+```bash
+# Create a Modelfile with increased context
+cat > Modelfile << EOF
+FROM nomic-embed-text
+PARAMETER num_ctx 8192
+EOF
+
+# Create the model with increased context
+ollama create nomic-embed-text:8k -f Modelfile
+
+# Use in your configuration
+MARIS_EMBEDDING_MODEL=nomic-embed-text:8k
+```
+
+**Context Length Recommendations:**
+- `2048` - Default, works for small files
+- `4096` - Good for medium files
+- `8192` - **Recommended for most codebases**
+- `16384` - For very large files (requires more memory)
+
 **Example:**
 ```bash
-MARIS_EMBEDDING_MODEL=mxbai-embed-large
+MARIS_EMBEDDING_MODEL=nomic-embed-text:8k
 MARIS_EMBEDDING_BATCH_SIZE=64
 ```
 

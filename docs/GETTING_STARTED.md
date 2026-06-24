@@ -46,6 +46,35 @@ ollama pull gemma2:12b      # MVP - better quality
 ollama pull qwen2.5:32b     # Recommended - best balance
 ```
 
+### 5. Increase Ollama Context Length (Important!)
+
+**For large files, you must increase the embedding model's context length to avoid errors:**
+
+```bash
+# Create a Modelfile to increase context length
+cat > Modelfile << EOF
+FROM nomic-embed-text
+PARAMETER num_ctx 8192
+EOF
+
+# Create the model with increased context
+ollama create nomic-embed-text:8k -f Modelfile
+
+# Use the new model in your .env
+echo "MARIS_EMBEDDING_MODEL=nomic-embed-text:8k" >> .env
+```
+
+**Why is this needed?**
+- Default context length is often 2048 tokens
+- Large code files can exceed this limit
+- Errors like "input length exceeds context length" indicate this issue
+
+**Recommended context lengths:**
+- `2048` - Default, works for small files
+- `4096` - Good for medium files
+- `8192` - Recommended for large codebases
+- `16384` - For very large files (requires more memory)
+
 ## Quick Start
 
 ### ⚠️ Important: Index First
@@ -144,16 +173,45 @@ maris/
 
 ### Excluded Patterns
 
-The following directories are automatically excluded from indexing:
+The following directories and files are automatically excluded from indexing:
 
-- `node_modules/`
-- `target/`
-- `build/`
-- `.git/`
-- `dist/`
-- `__pycache__/`
-- `*.min.js`
-- `*.bundle.js`
+**Version Control:**
+- `.git/`, `.svn/`, `.hg/`
+
+**Python:**
+- `__pycache__/`, `.venv/`, `venv/`, `env/`, `.env`
+- `*.pyc`, `*.pyo`, `*.pyd`
+- `.pytest_cache/`, `.mypy_cache/`, `.tox/`
+- `site-packages/`, `dist-packages/`
+
+**Node.js / JavaScript:**
+- `node_modules/`, `bower_components/`
+- `*.min.js`, `*.bundle.js`
+- `.npm/`, `.yarn/`
+
+**Java / JVM:**
+- `target/`, `build/`, `.gradle/`, `.m2/`
+- `*.class`
+
+**Build Outputs:**
+- `dist/`, `out/`, `bin/`
+- `.next/`, `.nuxt/`
+
+**IDE / Editor:**
+- `.idea/`, `.vscode/`, `.vs/`
+- `*.swp`, `*.swo`, `*~`
+
+**OS:**
+- `.DS_Store`, `Thumbs.db`
+
+**Logs and Temp:**
+- `*.log`, `logs/`, `tmp/`, `temp/`
+
+**Dependencies:**
+- `vendor/`, `vendors/`
+
+**Documentation Builds:**
+- `_build/`, `docs/_build/`
 
 ## Next Steps
 
