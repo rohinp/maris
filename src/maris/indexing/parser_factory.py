@@ -7,6 +7,11 @@ from maris.indexing.parser import TreeSitterParser
 from maris.indexing.python_parser import PythonParser
 from maris.indexing.java_parser import JavaParser
 from maris.indexing.scala_parser import ScalaParser
+from maris.indexing.bash_parser import BashParser
+from maris.indexing.javascript_parser import JavaScriptParser
+from maris.indexing.typescript_parser import TypeScriptParser
+from maris.indexing.config_parser import ConfigParser
+from maris.indexing.markdown_parser import MarkdownParser
 
 
 class ParserFactory:
@@ -32,6 +37,12 @@ class ParserFactory:
         ".sh": "ShellParser",
         ".bash": "ShellParser",
         ".rs": "RustParser",
+        ".yaml": "ConfigParser",
+        ".yml": "ConfigParser",
+        ".json": "ConfigParser",
+        ".toml": "ConfigParser",
+        ".ini": "ConfigParser",
+        ".md": "MarkdownParser",
     }
 
     # Mapping of language names to parser classes
@@ -39,12 +50,14 @@ class ParserFactory:
         "PythonParser": PythonParser,
         "JavaParser": JavaParser,
         "ScalaParser": ScalaParser,
+        "ShellParser": BashParser,
+        "JavaScriptParser": JavaScriptParser,
+        "TypeScriptParser": TypeScriptParser,
+        "ConfigParser": ConfigParser,
+        "MarkdownParser": MarkdownParser,
         # Additional parsers will be registered as they are implemented
         # 'KotlinParser': KotlinParser,
-        # 'JavaScriptParser': JavaScriptParser,
-        # 'TypeScriptParser': TypeScriptParser,
         # 'GoParser': GoParser,
-        # 'ShellParser': ShellParser,
         # 'RustParser': RustParser,
     }
 
@@ -188,6 +201,12 @@ class ParserFactory:
             ".sh": "bash",
             ".bash": "bash",
             ".rs": "rust",
+            ".yaml": "config",
+            ".yml": "config",
+            ".json": "config",
+            ".toml": "config",
+            ".ini": "config",
+            ".md": "markdown",
         }
 
         return language_map.get(extension)
