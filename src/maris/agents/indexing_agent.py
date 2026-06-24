@@ -659,10 +659,35 @@ class IndexingAgent:
             True if file should be excluded
         """
         from fnmatch import fnmatch
+        from pathlib import Path
+
+        # Normalize path separators
+        normalized_path = file_path.replace("\\", "/")
+        path_parts = Path(normalized_path).parts
 
         for pattern in self.excluded_patterns:
-            if fnmatch(file_path, pattern):
+            # Check full path match
+            if fnmatch(normalized_path, pattern):
                 return True
+
+            # Check if any directory in the path matches directory patterns
+            # This handles cases like .venv/, node_modules/, etc.
+            if pattern.endswith("/*"):
+                dir_pattern = pattern[:-2]  # Remove /*
+                if dir_pattern.startswith("*/"):
+                    dir_pattern = dir_pattern[2:]  # Remove */
+
+                # Check if this directory appears anywhere in the path
+                if dir_pattern in path_parts:
+                    return True
+
+            # Check if filename matches file patterns (like *.pyc, .env)
+            # Also handle patterns like */.env which should match .env anywhere
+            if not "/" in pattern or pattern.startswith("*/"):
+                filename_pattern = pattern[2:] if pattern.startswith("*/") else pattern
+                if fnmatch(Path(normalized_path).name, filename_pattern):
+                    return True
+
         return False
 
     def _detect_language(self, file_path: str) -> Optional[str]:
