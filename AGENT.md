@@ -1,7 +1,6 @@
-<!-- pragmatic-developer:start -->
-# Pragmatic Developer Guidance
+# Agent Guidance
 
-Use the `pragmatic-developer` skill for domain modeling, clean code, TDD, refactoring, design patterns, algorithmic tradeoffs, and project preference tracking.
+This file provides repository guidance for any coding agent or contributor working on MARIS.
 
 Before changing design direction:
 
@@ -13,6 +12,3 @@ Before changing design direction:
 - When the user chooses between design options, update `.codex/project-profile.md` with the decision, rationale, and scope.
 - When expected behavior, acceptance criteria, domain rules, API contracts, data behavior, or test proof changes, update the relevant spec in `.codex/specs`.
 - Keep code smell fixes compatible with the current repo first; present larger design alternatives with tradeoffs.
-
-This guidance is intended for Claude.
-<!-- pragmatic-developer:end -->

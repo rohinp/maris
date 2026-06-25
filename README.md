@@ -247,9 +247,9 @@ ruff check src tests
 - Prefer deterministic workflows and specialized agents over broad autonomous loops
 - Update specs when behavior, acceptance criteria, API contracts, or domain rules change
 
-Gaps found during review:
+Documentation review notes:
 
-- `AGENT.md` refers to a `pragmatic-developer` skill and says the guidance is intended for Claude; that dependency is not represented in this repository and may confuse other agents or contributors
+- `AGENT.md` is generic agent and contributor guidance; repository instructions should not depend on unavailable local skills or a specific assistant runtime
 - The root README previously read more like a product vision than a setup and usage guide
 - Some docs mention stale or unsupported CLI flags; verify behavior against `src/maris/cli/main.py`
 - Runtime dependencies are split unevenly between `requirements.txt` and `pyproject.toml`; use `requirements.txt` for a reliable local setup until package metadata is reconciled

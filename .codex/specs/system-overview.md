@@ -40,6 +40,7 @@ Primary outcomes:
 | Rule/Edge Case | Expected Behavior | Source | Status |
 | --- | --- | --- | --- |
 | Local-first processing | Parsing, embeddings, storage, and reasoning use local resources by default | `AGENT.md`, README | Implemented |
+| Generic agent guidance | Repository contributor instructions avoid dependencies on unavailable local skills or a specific assistant runtime | `AGENT.md`, README | Implemented |
 | Ollama validation | CLI validates configured embedding, Q&A, and documentation models unless `--skip-validation` is used | `src/maris/cli/main.py` | Implemented |
 | Project-local storage | CLI defaults to `.maris/` in current directory unless `MARIS_DATA_DIR` is set | `src/maris/cli/main.py` | Implemented |
 | Non-incremental index without path | CLI reports an error and suggests `--incremental` | `src/maris/cli/main.py` | Implemented |
@@ -94,5 +95,4 @@ Primary outcomes:
 | Question | Impact | Owner/Source |
 | --- | --- | --- |
 | Should `pyproject.toml` become the single source of package dependencies? | Affects install reliability and publishing | Maintainer |
-| Should `AGENT.md` be rewritten as generic contributor guidance instead of Claude-specific guidance? | Affects agent/contributor onboarding clarity | Maintainer |
 | Should stale docs be updated now or deprecated in favor of README plus specs? | Affects documentation maintenance cost | Maintainer |
