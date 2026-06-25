@@ -13,14 +13,14 @@ Implemented:
 - CLI entry point: `maris`
 - Local storage with DuckDB metadata and LanceDB vectors
 - Ollama-based embeddings and local model validation
-- Parser implementations for Python, Java, and Scala
+- Parser implementations for Python, Java, Scala, Bash, JavaScript, TypeScript, Config files (YAML/JSON/TOML/INI), and Markdown
 - Repository indexing, semantic search, symbol explanations, Q&A, documentation generation, and repository stats
 - Git-based incremental indexing
 - Impact analysis commands for impact, edge cases, test coverage, and breaking changes
 
 Planned or incomplete:
 
-- Parser factory lists additional planned languages, but Kotlin, JavaScript, TypeScript, Go, Bash, and Rust parsers are not implemented yet
+- Kotlin, Go, and Rust parsers have tree-sitter grammars installed but parser implementations are not yet complete
 - Git archaeology and architecture evolution agents are roadmap items
 - Some secondary docs may lag the CLI; the root README should be treated as the current quick-start reference
 - `AGENT.md` is contributor guidance and product direction, not an executable agent spec
@@ -246,14 +246,6 @@ ruff check src tests
 - Preserve the local-first, retrieval-first, symbol-aware design
 - Prefer deterministic workflows and specialized agents over broad autonomous loops
 - Update specs when behavior, acceptance criteria, API contracts, or domain rules change
-
-Documentation review notes:
-
-- `AGENT.md` is generic agent and contributor guidance; repository instructions should not depend on unavailable local skills or a specific assistant runtime
-- The root README previously read more like a product vision than a setup and usage guide
-- Some docs mention stale or unsupported CLI flags; verify behavior against `src/maris/cli/main.py`
-- Runtime dependencies are split unevenly between `requirements.txt` and `pyproject.toml`; use `requirements.txt` for a reliable local setup until package metadata is reconciled
-- The roadmap and parser support docs should distinguish implemented languages from planned languages consistently
 
 ## Additional Docs
 

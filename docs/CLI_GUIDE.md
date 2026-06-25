@@ -31,16 +31,16 @@ maris ask "How does this work?"
 All commands support these global options:
 
 ```bash
---data-dir PATH          # Directory for MARIS data storage (default: ~/.maris)
---ollama-url URL         # Ollama API base URL (default: http://localhost:11434)
---embedding-model MODEL  # Ollama embedding model (default: nomic-embed-text)
---llm-model MODEL        # Ollama LLM model for reasoning (default: qwen2.5:7b)
+--config-file PATH       # Path to .env configuration file
+--skip-validation        # Skip Ollama and model validation checks
 ```
 
 Example:
 ```bash
-maris --data-dir ./my-data --llm-model qwen2.5:14b index src/
+maris --config-file .env.production index src/
 ```
+
+**Note:** Configuration is primarily done through environment variables or `.env` files, not CLI flags. See the [Configuration Guide](CONFIGURATION.md) for details on setting `MARIS_DATA_DIR`, `MARIS_OLLAMA_HOST`, `MARIS_EMBEDDING_MODEL`, `MARIS_QA_MODEL`, etc.
 
 ## Commands
 

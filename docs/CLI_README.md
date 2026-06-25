@@ -67,11 +67,11 @@ maris stats
 ## Global Options
 
 ```bash
---data-dir PATH          # Data storage location (default: ~/.maris)
---ollama-url URL         # Ollama API URL (default: http://localhost:11434)
---embedding-model MODEL  # Embedding model (default: nomic-embed-text)
---llm-model MODEL        # LLM model (default: qwen2.5:7b)
+--config-file PATH       # Path to .env configuration file
+--skip-validation        # Skip Ollama and model validation checks
 ```
+
+**Note:** Configuration is primarily done through environment variables or `.env` files. See [Configuration Guide](CONFIGURATION.md) for details on `MARIS_DATA_DIR`, `MARIS_OLLAMA_HOST`, `MARIS_EMBEDDING_MODEL`, `MARIS_QA_MODEL`, etc.
 
 ## Examples
 

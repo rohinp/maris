@@ -1,3 +1,12 @@
+# MARIS Runtime Dependencies
+#
+# This file mirrors the dependencies in pyproject.toml [project.dependencies].
+# Use this file for reliable local development setup:
+#   pip install -r requirements.txt
+#
+# For package installation, dependencies are managed in pyproject.toml.
+# Keep both files synchronized when adding or updating dependencies.
+
 # Core dependencies
 tree-sitter>=0.21.0
 

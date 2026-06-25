@@ -10,22 +10,22 @@ MARIS now supports parsing and indexing multiple programming languages using tre
 
 | Language | Parser | Extensions | Test Coverage | Status |
 |----------|--------|------------|---------------|--------|
-| Python | `PythonParser` | `.py` | High | Production |
-| Java | `JavaParser` | `.java` | 94% | Production |
-| Scala | `ScalaParser` | `.scala` | 91% | Production |
-| Bash | `BashParser` | `.sh`, `.bash` | High | Production |
-| JavaScript | `JavaScriptParser` | `.js`, `.jsx` | High | Production |
-| TypeScript | `TypeScriptParser` | `.ts`, `.tsx` | High | Production |
-| Config Files | `ConfigParser` | `.yaml`, `.yml`, `.json`, `.toml`, `.ini` | High | Production |
-| Markdown | `MarkdownParser` | `.md` | High | Production |
+| Python | `PythonParser` | `.py` | High | ✅ Production |
+| Java | `JavaParser` | `.java` | 94% | ✅ Production |
+| Scala | `ScalaParser` | `.scala` | 91% | ✅ Production |
+| Bash | `BashParser` | `.sh`, `.bash` | High | ✅ Production |
+| JavaScript | `JavaScriptParser` | `.js`, `.jsx` | High | ✅ Production |
+| TypeScript | `TypeScriptParser` | `.ts`, `.tsx` | High | ✅ Production |
+| Config Files | `ConfigParser` | `.yaml`, `.yml`, `.json`, `.toml`, `.ini` | High | ✅ Production |
+| Markdown | `MarkdownParser` | `.md` | High | ✅ Production |
 
-### 📝 Planned (Infrastructure Ready)
+### 📋 Planned (Grammar Installed, Parser Not Implemented)
 
-| Language | Extensions | Tree-sitter Grammar | Status |
-|----------|------------|---------------------|--------|
-| Kotlin | `.kt`, `.kts` | ✅ Installed | Planned |
-| Go | `.go` | ✅ Installed | Planned |
-| Rust | `.rs` | ✅ Installed | Planned |
+| Language | Extensions | Tree-sitter Grammar | Parser Implementation | Status |
+|----------|------------|---------------------|----------------------|--------|
+| Kotlin | `.kt`, `.kts` | ✅ Installed | ❌ Not implemented | 📋 Planned |
+| Go | `.go` | ✅ Installed | ❌ Not implemented | 📋 Planned |
+| Rust | `.rs` | ✅ Installed | ❌ Not implemented | 📋 Planned |
 
 ## Architecture
 
