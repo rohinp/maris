@@ -5,7 +5,14 @@ from typing import List, Optional
 import tree_sitter
 import tree_sitter_bash
 
-from maris.core.models import Dependency, Symbol, SymbolType
+from maris.core.models import (
+    METADATA_BODY_SUMMARY,
+    METADATA_CALLS,
+    METADATA_SOURCE,
+    Dependency,
+    Symbol,
+    SymbolType,
+)
 from maris.indexing.parser import TreeSitterParser
 
 
@@ -106,6 +113,24 @@ class BashParser(TreeSitterParser):
         # Extract any comment above the function as documentation
         docstring = self._extract_bash_comment(node, content)
 
+        # Calls + source from the function body
+        body_node = node.child_by_field_name("body")
+        calls: List[str] = []
+        source: Optional[str] = None
+        if body_node:
+            calls = self.extract_calls(body_node, content)
+            source = self.get_node_text(node, content)
+
+        # Build metadata
+        body_summary = self.body_summary_from_docstring(docstring)
+        metadata = {}
+        if calls:
+            metadata[METADATA_CALLS] = calls
+        if source:
+            metadata[METADATA_SOURCE] = source
+        if body_summary:
+            metadata[METADATA_BODY_SUMMARY] = body_summary
+
         symbol_id = self.generate_symbol_id(file_path, func_name, start_line)
 
         return Symbol(
@@ -117,6 +142,7 @@ class BashParser(TreeSitterParser):
             start_line=start_line,
             end_line=end_line,
             docstring=docstring,
+            metadata=metadata,
         )
 
     def _extract_bash_comment(self, node: tree_sitter.Node, content: str) -> Optional[str]:
@@ -134,7 +160,12 @@ class BashParser(TreeSitterParser):
         if node.prev_sibling and node.prev_sibling.type == "comment":
             comment_text = self.get_node_text(node.prev_sibling, content)
             # Remove leading # and whitespace
-            return comment_text.lstrip("#").strip()
+            cleaned = comment_text.lstrip("#").strip()
+            # Discard shebang lines (e.g. "!/bin/bash") — they are file-level
+            # directives, not function documentation.
+            if cleaned.startswith("!"):
+                return None
+            return cleaned if cleaned else None
         return None
 
     def _extract_source_dependencies(

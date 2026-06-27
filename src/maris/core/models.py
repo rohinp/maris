@@ -5,6 +5,14 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
+# Keys written into Symbol.metadata by parsers for richer symbol chunks.
+# All keys are optional; consumers should use .get() with a default.
+METADATA_PARENT_NAME = "parent_name"    # str  — name of the enclosing class/object
+METADATA_CALLS = "calls"                # List[str] — names of callees inside the body
+METADATA_RETURN_TYPE = "return_type"    # str  — declared return type annotation
+METADATA_BODY_SUMMARY = "body_summary"  # str  — short prose summary of the body
+METADATA_SOURCE = "source"              # str  — full source text of the symbol
+
 
 class SymbolType(Enum):
     """Types of code symbols that can be extracted."""
@@ -84,8 +92,60 @@ class Symbol:
             "signature": self.signature,
             "docstring": self.docstring,
             "parent_id": self.parent_id,
+            # Promoted metadata keys for convenience
+            "parent_name": self.metadata.get(METADATA_PARENT_NAME),
+            "calls": self.metadata.get(METADATA_CALLS, []),
+            "return_type": self.metadata.get(METADATA_RETURN_TYPE),
+            "body_summary": self.metadata.get(METADATA_BODY_SUMMARY),
+            "source": self.metadata.get(METADATA_SOURCE),
             "metadata": self.metadata,
         }
+
+    def to_rich_text(self) -> str:
+        """
+        Build a rich text representation used for embedding generation.
+
+        Includes all available semantic fields so the embedding captures
+        not just name/type but also call graph, return type, and body intent.
+
+        Returns:
+            Multi-line string suitable for passing to an embedding model.
+        """
+        parts = [
+            f"Symbol: {self.name}",
+            f"Type: {self.type.value}",
+            f"Language: {self.language}",
+        ]
+
+        parent_name = self.metadata.get(METADATA_PARENT_NAME)
+        if parent_name:
+            parts.append(f"Parent: {parent_name}")
+
+        if self.signature:
+            parts.append(f"Signature: {self.signature}")
+
+        return_type = self.metadata.get(METADATA_RETURN_TYPE)
+        if return_type:
+            parts.append(f"Returns: {return_type}")
+
+        calls = self.metadata.get(METADATA_CALLS)
+        if calls:
+            parts.append(f"Calls: {', '.join(calls)}")
+
+        if self.docstring:
+            parts.append(f"Documentation: {self.docstring}")
+
+        body_summary = self.metadata.get(METADATA_BODY_SUMMARY)
+        if body_summary:
+            parts.append(f"Body Summary: {body_summary}")
+
+        source = self.metadata.get(METADATA_SOURCE)
+        if source:
+            parts.append(f"Source:\n{source}")
+
+        parts.append(f"File: {self.file_path}")
+
+        return "\n".join(parts)
 
 
 @dataclass

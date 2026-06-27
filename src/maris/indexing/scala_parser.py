@@ -5,7 +5,16 @@ from typing import List, Optional
 import tree_sitter
 import tree_sitter_scala
 
-from maris.core.models import Dependency, Symbol, SymbolType
+from maris.core.models import (
+    METADATA_BODY_SUMMARY,
+    METADATA_CALLS,
+    METADATA_PARENT_NAME,
+    METADATA_RETURN_TYPE,
+    METADATA_SOURCE,
+    Dependency,
+    Symbol,
+    SymbolType,
+)
 from maris.indexing.parser import TreeSitterParser
 
 
@@ -57,7 +66,7 @@ class ScalaParser(TreeSitterParser):
 
                 # Extract members within the class
                 member_symbols = self._extract_class_members(
-                    class_node, file_path, content, symbol.id
+                    class_node, file_path, content, symbol.id, parent_name=symbol.name
                 )
                 symbols.extend(member_symbols)
 
@@ -70,7 +79,7 @@ class ScalaParser(TreeSitterParser):
 
                 # Extract members within the trait
                 member_symbols = self._extract_trait_members(
-                    trait_node, file_path, content, symbol.id
+                    trait_node, file_path, content, symbol.id, parent_name=symbol.name
                 )
                 symbols.extend(member_symbols)
 
@@ -83,7 +92,7 @@ class ScalaParser(TreeSitterParser):
 
                 # Extract members within the object
                 member_symbols = self._extract_object_members(
-                    object_node, file_path, content, symbol.id
+                    object_node, file_path, content, symbol.id, parent_name=symbol.name
                 )
                 symbols.extend(member_symbols)
 
@@ -232,7 +241,12 @@ class ScalaParser(TreeSitterParser):
         )
 
     def _extract_class_members(
-        self, class_node: tree_sitter.Node, file_path: str, content: str, parent_id: str
+        self,
+        class_node: tree_sitter.Node,
+        file_path: str,
+        content: str,
+        parent_id: str,
+        parent_name: Optional[str] = None,
     ) -> List[Symbol]:
         """Extract functions and values from a class."""
         members = []
@@ -245,7 +259,9 @@ class ScalaParser(TreeSitterParser):
         # Extract functions (def)
         function_nodes = self.find_nodes_by_type(template_body, "function_definition")
         for func_node in function_nodes:
-            symbol = self._extract_function(func_node, file_path, content, parent_id)
+            symbol = self._extract_function(
+                func_node, file_path, content, parent_id, parent_name=parent_name
+            )
             if symbol:
                 members.append(symbol)
 
@@ -263,7 +279,12 @@ class ScalaParser(TreeSitterParser):
         return members
 
     def _extract_trait_members(
-        self, trait_node: tree_sitter.Node, file_path: str, content: str, parent_id: str
+        self,
+        trait_node: tree_sitter.Node,
+        file_path: str,
+        content: str,
+        parent_id: str,
+        parent_name: Optional[str] = None,
     ) -> List[Symbol]:
         """Extract functions from a trait."""
         members = []
@@ -276,20 +297,34 @@ class ScalaParser(TreeSitterParser):
         # Extract functions
         function_nodes = self.find_nodes_by_type(template_body, "function_definition")
         for func_node in function_nodes:
-            symbol = self._extract_function(func_node, file_path, content, parent_id)
+            symbol = self._extract_function(
+                func_node, file_path, content, parent_id, parent_name=parent_name
+            )
             if symbol:
                 members.append(symbol)
 
         return members
 
     def _extract_object_members(
-        self, object_node: tree_sitter.Node, file_path: str, content: str, parent_id: str
+        self,
+        object_node: tree_sitter.Node,
+        file_path: str,
+        content: str,
+        parent_id: str,
+        parent_name: Optional[str] = None,
     ) -> List[Symbol]:
         """Extract functions and values from an object."""
-        return self._extract_class_members(object_node, file_path, content, parent_id)
+        return self._extract_class_members(
+            object_node, file_path, content, parent_id, parent_name=parent_name
+        )
 
     def _extract_function(
-        self, node: tree_sitter.Node, file_path: str, content: str, parent_id: Optional[str] = None
+        self,
+        node: tree_sitter.Node,
+        file_path: str,
+        content: str,
+        parent_id: Optional[str] = None,
+        parent_name: Optional[str] = None,
     ) -> Optional[Symbol]:
         """Extract a function symbol."""
         # Find the function name
@@ -308,6 +343,42 @@ class ScalaParser(TreeSitterParser):
         # Extract Scaladoc comment
         docstring = self._extract_scaladoc(node, content)
 
+        # --- Signature: parameters + return type annotation ---
+        params_node = node.child_by_field_name("parameters")
+        signature: Optional[str] = None
+        if params_node:
+            params_text = self.get_node_text(params_node, content)
+            signature = f"def {function_name}{params_text}"
+
+        # Return type (tree-sitter-scala names the field "return_type")
+        return_type = self.extract_return_type(node, content)
+        if return_type and signature:
+            signature = f"{signature}: {return_type}"
+        elif return_type:
+            signature = f"def {function_name}: {return_type}"
+
+        # Calls + source from the body
+        body_node = node.child_by_field_name("body")
+        calls: List[str] = []
+        source: Optional[str] = None
+        if body_node:
+            calls = self.extract_calls(body_node, content)
+            source = self.get_node_text(node, content)
+
+        # Build metadata dict
+        body_summary = self.body_summary_from_docstring(docstring)
+        metadata = {}
+        if parent_name:
+            metadata[METADATA_PARENT_NAME] = parent_name
+        if return_type:
+            metadata[METADATA_RETURN_TYPE] = return_type
+        if calls:
+            metadata[METADATA_CALLS] = calls
+        if source:
+            metadata[METADATA_SOURCE] = source
+        if body_summary:
+            metadata[METADATA_BODY_SUMMARY] = body_summary
+
         return Symbol(
             id=symbol_id,
             name=function_name,
@@ -316,8 +387,10 @@ class ScalaParser(TreeSitterParser):
             language="scala",
             start_line=self.get_line_number(node),
             end_line=self.get_end_line_number(node),
+            signature=signature,
             parent_id=parent_id,
             docstring=docstring,
+            metadata=metadata,
         )
 
     def _extract_values(

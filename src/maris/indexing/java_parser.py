@@ -5,7 +5,16 @@ from typing import List, Optional
 import tree_sitter
 import tree_sitter_java
 
-from maris.core.models import Dependency, Symbol, SymbolType
+from maris.core.models import (
+    METADATA_BODY_SUMMARY,
+    METADATA_CALLS,
+    METADATA_PARENT_NAME,
+    METADATA_RETURN_TYPE,
+    METADATA_SOURCE,
+    Dependency,
+    Symbol,
+    SymbolType,
+)
 from maris.indexing.parser import TreeSitterParser
 
 
@@ -57,7 +66,7 @@ class JavaParser(TreeSitterParser):
 
                 # Extract methods and fields within the class
                 member_symbols = self._extract_class_members(
-                    class_node, file_path, content, symbol.id
+                    class_node, file_path, content, symbol.id, parent_name=symbol.name
                 )
                 symbols.extend(member_symbols)
 
@@ -70,7 +79,7 @@ class JavaParser(TreeSitterParser):
 
                 # Extract methods within the interface
                 method_symbols = self._extract_interface_methods(
-                    interface_node, file_path, content, symbol.id
+                    interface_node, file_path, content, symbol.id, parent_name=symbol.name
                 )
                 symbols.extend(method_symbols)
 
@@ -106,9 +115,6 @@ class JavaParser(TreeSitterParser):
         """
         dependencies = []
         root_node = tree.root_node
-
-        # Create a map of symbol names to IDs for quick lookup
-        symbol_map = {s.name: s.id for s in symbols}
 
         # Extract import dependencies
         import_nodes = self.find_nodes_by_type(root_node, "import_declaration")
@@ -223,7 +229,12 @@ class JavaParser(TreeSitterParser):
         )
 
     def _extract_class_members(
-        self, class_node: tree_sitter.Node, file_path: str, content: str, parent_id: str
+        self,
+        class_node: tree_sitter.Node,
+        file_path: str,
+        content: str,
+        parent_id: str,
+        parent_name: Optional[str] = None,
     ) -> List[Symbol]:
         """Extract methods and fields from a class."""
         members = []
@@ -241,7 +252,9 @@ class JavaParser(TreeSitterParser):
         # Extract methods (including constructors)
         for child in body_node.children:
             if child.type == "method_declaration":
-                symbol = self._extract_method(child, file_path, content, parent_id)
+                symbol = self._extract_method(
+                    child, file_path, content, parent_id, parent_name=parent_name
+                )
                 if symbol:
                     members.append(symbol)
             elif child.type == "constructor_declaration":
@@ -255,7 +268,12 @@ class JavaParser(TreeSitterParser):
         return members
 
     def _extract_interface_methods(
-        self, interface_node: tree_sitter.Node, file_path: str, content: str, parent_id: str
+        self,
+        interface_node: tree_sitter.Node,
+        file_path: str,
+        content: str,
+        parent_id: str,
+        parent_name: Optional[str] = None,
     ) -> List[Symbol]:
         """Extract methods from an interface."""
         methods = []
@@ -273,14 +291,21 @@ class JavaParser(TreeSitterParser):
         # Extract method declarations
         for child in body_node.children:
             if child.type == "method_declaration":
-                symbol = self._extract_method(child, file_path, content, parent_id)
+                symbol = self._extract_method(
+                    child, file_path, content, parent_id, parent_name=parent_name
+                )
                 if symbol:
                     methods.append(symbol)
 
         return methods
 
     def _extract_method(
-        self, node: tree_sitter.Node, file_path: str, content: str, parent_id: Optional[str] = None
+        self,
+        node: tree_sitter.Node,
+        file_path: str,
+        content: str,
+        parent_id: Optional[str] = None,
+        parent_name: Optional[str] = None,
     ) -> Optional[Symbol]:
         """Extract a method symbol."""
         # Find the method name
@@ -296,8 +321,42 @@ class JavaParser(TreeSitterParser):
         method_name = self.get_node_text(name_node, content)
         symbol_id = self.generate_symbol_id(file_path, method_name, self.get_line_number(node))
 
-        # Extract docstring
+        # Extract Javadoc comment
         docstring = self._extract_javadoc(node, content)
+
+        # Signature: return type + name + parameters
+        type_node = node.child_by_field_name("type")
+        params_node = node.child_by_field_name("parameters")
+        return_type: Optional[str] = None
+        if type_node:
+            return_type = self.get_node_text(type_node, content)
+        signature: Optional[str] = None
+        if params_node:
+            params_text = self.get_node_text(params_node, content)
+            rt_prefix = f"{return_type} " if return_type else ""
+            signature = f"{rt_prefix}{method_name}{params_text}"
+
+        # Calls + source from the method body
+        body_node = node.child_by_field_name("body")
+        calls: List[str] = []
+        source: Optional[str] = None
+        if body_node:
+            calls = self.extract_calls(body_node, content)
+            source = self.get_node_text(node, content)
+
+        # Build metadata
+        body_summary = self.body_summary_from_docstring(docstring)
+        metadata = {}
+        if parent_name:
+            metadata[METADATA_PARENT_NAME] = parent_name
+        if return_type:
+            metadata[METADATA_RETURN_TYPE] = return_type
+        if calls:
+            metadata[METADATA_CALLS] = calls
+        if source:
+            metadata[METADATA_SOURCE] = source
+        if body_summary:
+            metadata[METADATA_BODY_SUMMARY] = body_summary
 
         return Symbol(
             id=symbol_id,
@@ -307,8 +366,10 @@ class JavaParser(TreeSitterParser):
             language="java",
             start_line=self.get_line_number(node),
             end_line=self.get_end_line_number(node),
+            signature=signature,
             parent_id=parent_id,
             docstring=docstring,
+            metadata=metadata,
         )
 
     def _extract_constructor(
@@ -399,6 +460,36 @@ class JavaParser(TreeSitterParser):
                         cleaned_lines.append(line)
                 return "\n".join(cleaned_lines)
         return None
+
+    def extract_calls(self, body_node: tree_sitter.Node, content: str) -> List[str]:
+        """
+        Extract Java method calls while preserving receiver context.
+
+        The generic implementation sees the ``name`` field of Java
+        ``method_invocation`` nodes, which turns ``reducer.reduce()`` into just
+        ``reduce``. Java exposes the receiver as the ``object`` field, so use
+        that when present.
+        """
+        seen: set[str] = set()
+        stack = [body_node]
+
+        while stack:
+            node = stack.pop()
+            if node.type == "method_invocation":
+                name_node = node.child_by_field_name("name")
+                object_node = node.child_by_field_name("object")
+                if name_node:
+                    method_name = self.get_node_text(name_node, content)
+                    if object_node:
+                        object_name = self.get_node_text(object_node, content)
+                        name = self._normalize_call_name(f"{object_name}.{method_name}")
+                    else:
+                        name = method_name
+                    if name:
+                        seen.add(name)
+            stack.extend(node.children)
+
+        return sorted(seen)
 
     def _extract_import_dependency(
         self, node: tree_sitter.Node, symbols: List[Symbol], file_path: str, content: str

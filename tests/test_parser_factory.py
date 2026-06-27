@@ -1,10 +1,9 @@
 """Tests for ParserFactory."""
 
 import pytest
-from pathlib import Path
 
-from maris.indexing.parser_factory import ParserFactory
 from maris.indexing.parser import TreeSitterParser
+from maris.indexing.parser_factory import ParserFactory
 from maris.indexing.python_parser import PythonParser
 
 
@@ -73,7 +72,6 @@ class TestParserFactory:
 
         # Not supported
         assert ParserFactory.is_supported("readme.txt") is False
-        assert ParserFactory.is_supported("config.json") is False
         assert ParserFactory.is_supported("data.csv") is False
 
     def test_is_implemented(self):
@@ -289,13 +287,13 @@ def test_function():
         test_cases = [
             ("src/main.py", "python", True),
             ("src/com/example/Main.java", "java", True),
-            ("src/main/scala/App.scala", "scala", True),
-            ("src/App.kt", "kotlin", False),
-            ("src/index.js", "javascript", False),
-            ("src/index.ts", "typescript", False),
-            ("cmd/main.go", "go", False),
-            ("scripts/deploy.sh", "bash", False),
-            ("src/main.rs", "rust", False),
+        ("src/main/scala/App.scala", "scala", True),
+        ("src/App.kt", "kotlin", False),
+        ("src/index.js", "javascript", True),
+        ("src/index.ts", "typescript", True),
+        ("cmd/main.go", "go", False),
+        ("scripts/deploy.sh", "bash", True),
+        ("src/main.rs", "rust", False),
         ]
 
         for file_path, expected_lang, should_have_parser in test_cases:

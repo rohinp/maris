@@ -252,6 +252,7 @@ ruff check src tests
 - [Installation Guide](docs/INSTALLATION.md)
 - [Configuration](docs/CONFIGURATION.md)
 - [Architecture](docs/ARCHITECTURE.md)
+- [Project Walkthrough](docs/PROJECT_WALKTHROUGH.md)
 - [Git Agent](docs/GIT_AGENT.md)
 - [Impact Analysis Agent](docs/IMPACT_ANALYSIS_AGENT.md)
 - [Multi-Language Support](docs/MULTI_LANGUAGE_SUPPORT.md)

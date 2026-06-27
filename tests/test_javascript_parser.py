@@ -2,8 +2,8 @@
 
 import pytest
 
+from maris.core.models import METADATA_CALLS, METADATA_SOURCE, SymbolType
 from maris.indexing.javascript_parser import JavaScriptParser
-from maris.core.models import SymbolType
 
 
 class TestJavaScriptParser:
@@ -97,6 +97,25 @@ const multiply = (a, b) => a * b;
         multiply_func = next((s for s in symbols if s.name == "multiply"), None)
         assert multiply_func is not None
         assert multiply_func.type == SymbolType.FUNCTION
+
+    def test_extract_arrow_function_enriched_metadata(self, parser):
+        """Test extracting rich metadata for arrow functions."""
+        content = """
+const retryExecuteNode = (node, state) => {
+    attemptExecuteNode(node, state);
+    reducer.reduce(state);
+};
+"""
+        tree = parser.parse_file("test.js", content)
+        assert tree is not None
+
+        symbols = parser.extract_symbols(tree, "test.js", content)
+        symbol = next((s for s in symbols if s.name == "retryExecuteNode"), None)
+
+        assert symbol is not None
+        assert symbol.signature == "retryExecuteNode(node, state)"
+        assert symbol.metadata[METADATA_CALLS] == ["attemptExecuteNode", "reducer.reduce"]
+        assert "retryExecuteNode = (node, state)" in symbol.metadata[METADATA_SOURCE]
 
     def test_extract_constants(self, parser):
         """Test extracting constants."""

@@ -1,8 +1,8 @@
 """Base Tree-sitter parser for extracting symbols from source code."""
 
 import hashlib
+import re
 from abc import ABC, abstractmethod
-from pathlib import Path
 from typing import List, Optional
 
 import tree_sitter
@@ -182,6 +182,36 @@ class TreeSitterParser(ABC):
 
         return results
 
+    def body_summary_from_docstring(self, docstring: Optional[str]) -> Optional[str]:
+        """
+        Extract the first sentence of a docstring for use as a body summary.
+
+        This is a static, parser-time approximation: it returns the leading
+        sentence of the existing docstring/comment, not a generated summary of
+        what the code actually does.  Methods with no docstring produce no
+        summary.  A richer summary (e.g. LLM-generated) can be injected later
+        by writing directly to ``symbol.metadata[METADATA_BODY_SUMMARY]``.
+
+        Args:
+            docstring: Raw docstring text or None
+
+        Returns:
+            First sentence of the docstring, or None if absent/empty
+        """
+        if not docstring:
+            return None
+        # Strip leading/trailing whitespace
+        text = docstring.strip()
+        if not text:
+            return None
+        # Take up to the first blank line
+        first_para = text.split("\n\n")[0].replace("\n", " ").strip()
+        # Take up to the first sentence-ending period followed by whitespace or end
+        match = re.search(r"\.(\s|$)", first_para)
+        if match:
+            first_para = first_para[: match.start() + 1]
+        return first_para if first_para else None
+
     def get_docstring(self, node: tree_sitter.Node, content: str) -> Optional[str]:
         """
         Extract docstring from a node if present.
@@ -198,6 +228,101 @@ class TreeSitterParser(ABC):
         """
         # Generic implementation - override in language-specific parsers
         return None
+
+    def extract_calls(self, body_node: tree_sitter.Node, content: str) -> List[str]:
+        """
+        Extract names of called functions/methods from a body node.
+
+        Walks the body looking for call_expression / method_invocation nodes
+        and returns the de-duplicated list of callee names.  This is a generic
+        best-effort implementation; language parsers may override it for
+        higher accuracy.
+
+        Args:
+            body_node: The body/block node of a function or method
+            content: Source code content
+
+        Returns:
+            Sorted, de-duplicated list of callee name strings
+        """
+        # Common call node types across languages supported by tree-sitter
+        call_node_types = {
+            "call_expression",      # JS/TS, Scala (some grammars)
+            "method_invocation",    # Java
+            "method_call",          # alternative name in some grammars
+            "call",                 # Python tree-sitter grammar
+            "function_call",        # fallback
+        }
+        seen: set = set()
+        stack = [body_node]
+
+        while stack:
+            node = stack.pop()
+            if node.type in call_node_types:
+                # Try the "function" or "method" named field first, then fall back
+                # to reading the first identifier child.
+                callee_node = (
+                    node.child_by_field_name("function")
+                    or node.child_by_field_name("method")
+                    or node.child_by_field_name("name")
+                )
+                if callee_node:
+                    name = self.get_node_text(callee_node, content)
+                    name = self._normalize_call_name(name)
+                    if name:
+                        seen.add(name)
+            stack.extend(node.children)
+
+        return sorted(seen)
+
+    def _normalize_call_name(self, name: str) -> str:
+        """
+        Normalize a callee name while preserving useful receiver context.
+
+        Examples:
+        - ``this.reducer.reduce`` -> ``reducer.reduce``
+        - ``a.b.c.deepCall`` -> ``c.deepCall``
+        - ``emitEvent`` -> ``emitEvent``
+        """
+        parts = name.split(".")
+        if len(parts) > 2:
+            return ".".join(parts[-2:])
+        return name
+
+    def extract_return_type(self, node: tree_sitter.Node, content: str) -> Optional[str]:
+        """
+        Extract the declared return type from a function/method node.
+
+        Looks for the "return_type" named field used by most tree-sitter
+        grammars.  Returns None when no annotation is present.
+
+        Args:
+            node: Function or method definition node
+            content: Source code content
+
+        Returns:
+            Return type text or None
+        """
+        rt_node = node.child_by_field_name("return_type")
+        if rt_node:
+            return self.get_node_text(rt_node, content).lstrip(":").strip()
+        return None
+
+    def build_symbol_text(self, symbol: Symbol) -> str:
+        """
+        Delegate to ``Symbol.to_rich_text()``.
+
+        Provided as a convenience method on the parser so that any code
+        already calling ``parser.build_symbol_text(symbol)`` continues to
+        work without change.
+
+        Args:
+            symbol: Symbol to convert to text
+
+        Returns:
+            Rich text string suitable for embedding
+        """
+        return symbol.to_rich_text()
 
 
 # Made with Bob

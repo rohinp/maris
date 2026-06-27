@@ -1,7 +1,7 @@
 """Markdown file parser for documentation and README files."""
 
 import re
-from typing import Any, List, Optional
+from typing import Any, List
 
 from maris.core.models import Dependency, Symbol, SymbolType
 from maris.indexing.parser import TreeSitterParser
@@ -196,7 +196,6 @@ class MarkdownParser(TreeSitterParser):
         matches = re.finditer(link_pattern, content)
 
         for match in matches:
-            link_text = match.group(1)
             link_url = match.group(2)
 
             # Skip external URLs (http/https)

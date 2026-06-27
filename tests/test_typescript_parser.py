@@ -2,8 +2,8 @@
 
 import pytest
 
+from maris.core.models import METADATA_CALLS, METADATA_RETURN_TYPE, METADATA_SOURCE, SymbolType
 from maris.indexing.typescript_parser import TypeScriptParser
-from maris.core.models import SymbolType
 
 
 class TestTypeScriptParser:
@@ -156,6 +156,26 @@ const multiply = (a: number, b: number): number => a * b;
         # Check arrow function
         multiply_func = next((s for s in functions if s.name == "multiply"), None)
         assert multiply_func is not None
+
+    def test_extract_arrow_function_enriched_metadata(self, parser):
+        """Test extracting rich metadata for typed arrow functions."""
+        content = """
+const retryExecuteNode = (node: Node, state: State): Try<State> => {
+    attemptExecuteNode(node, state);
+    this.reducer.reduce(state);
+};
+"""
+        tree = parser.parse_file("test.ts", content)
+        assert tree is not None
+
+        symbols = parser.extract_symbols(tree, "test.ts", content)
+        symbol = next((s for s in symbols if s.name == "retryExecuteNode"), None)
+
+        assert symbol is not None
+        assert symbol.signature == "retryExecuteNode(node: Node, state: State): Try<State>"
+        assert symbol.metadata[METADATA_RETURN_TYPE] == "Try<State>"
+        assert symbol.metadata[METADATA_CALLS] == ["attemptExecuteNode", "reducer.reduce"]
+        assert "retryExecuteNode = (node: Node" in symbol.metadata[METADATA_SOURCE]
 
     def test_extract_constants(self, parser):
         """Test extracting constants."""

@@ -120,11 +120,9 @@ class OllamaEmbeddingService:
         """
         Generate an embedding for a symbol.
 
-        Creates a rich text representation of the symbol including:
-        - Symbol name and type
-        - Signature (if available)
-        - Docstring (if available)
-        - File path context
+        Uses ``Symbol.to_rich_text()`` to build the embedding text, which
+        includes name, type, language, parent, signature, return type, calls,
+        docstring, body summary, and source when available.
 
         Args:
             symbol: Symbol to embed
@@ -132,23 +130,7 @@ class OllamaEmbeddingService:
         Returns:
             Embedding vector
         """
-        # Build rich text representation
-        parts = [
-            f"Symbol: {symbol.name}",
-            f"Type: {symbol.type.value}",
-            f"Language: {symbol.language}",
-        ]
-
-        if symbol.signature:
-            parts.append(f"Signature: {symbol.signature}")
-
-        if symbol.docstring:
-            parts.append(f"Documentation: {symbol.docstring}")
-
-        parts.append(f"File: {symbol.file_path}")
-
-        text = "\n".join(parts)
-        return self.generate_embedding(text)
+        return self.generate_embedding(symbol.to_rich_text())
 
     def embed_symbols(
         self, symbols: List[Symbol], progress_callback: Optional[Callable[[int, int], None]] = None
@@ -163,24 +145,7 @@ class OllamaEmbeddingService:
         Returns:
             List of embedding vectors
         """
-        texts = []
-        for symbol in symbols:
-            parts = [
-                f"Symbol: {symbol.name}",
-                f"Type: {symbol.type.value}",
-                f"Language: {symbol.language}",
-            ]
-
-            if symbol.signature:
-                parts.append(f"Signature: {symbol.signature}")
-
-            if symbol.docstring:
-                parts.append(f"Documentation: {symbol.docstring}")
-
-            parts.append(f"File: {symbol.file_path}")
-
-            texts.append("\n".join(parts))
-
+        texts = [symbol.to_rich_text() for symbol in symbols]
         return self.generate_embeddings(texts, progress_callback=progress_callback)
 
     def check_model_availability(self) -> bool:

@@ -2,7 +2,7 @@
 
 import pytest
 
-from maris.core.models import SymbolType
+from maris.core.models import METADATA_CALLS, SymbolType
 from maris.indexing.java_parser import JavaParser
 
 
@@ -158,6 +158,29 @@ public class Calculator {
         assert len(method_symbols) == 4
         method_names = {s.name for s in method_symbols}
         assert method_names == {"add", "subtract", "multiply", "divide"}
+
+    def test_method_calls_preserve_receiver_context(self, parser):
+        """Test enriched call metadata keeps Java method receivers."""
+        code = """
+public class GraphRunner {
+    public Try<State> retryExecuteNode(Node node, State state) {
+        attemptExecuteNode(node, state);
+        reducer.reduce(state);
+        emitEvent("retry");
+    }
+}
+"""
+        tree = parser.parse_file("GraphRunner.java", code)
+        symbols = parser.extract_symbols(tree, "GraphRunner.java", code)
+
+        method = next((s for s in symbols if s.name == "retryExecuteNode"), None)
+
+        assert method is not None
+        assert method.metadata[METADATA_CALLS] == [
+            "attemptExecuteNode",
+            "emitEvent",
+            "reducer.reduce",
+        ]
 
     def test_parse_nested_class(self, parser):
         """Test parsing nested classes."""

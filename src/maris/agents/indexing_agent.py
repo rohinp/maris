@@ -407,20 +407,13 @@ class IndexingAgent:
             embeddings = state.get("embeddings", [])
 
             if symbols and embeddings and len(symbols) == len(embeddings):
-                # Store embeddings with symbol metadata
+                # Store embeddings — text must match what was passed to the
+                # embedding model so that LanceDB's text column stays in sync.
                 for symbol, embedding in zip(symbols, embeddings):
-                    # Build text representation for the embedding
-                    text_parts = [f"Symbol: {symbol.name}", f"Type: {symbol.type.value}"]
-                    if symbol.signature:
-                        text_parts.append(f"Signature: {symbol.signature}")
-                    if symbol.docstring:
-                        text_parts.append(f"Documentation: {symbol.docstring}")
-                    text = "\n".join(text_parts)
-
                     self.vector_store.insert_embedding(
                         symbol_id=symbol.id,
                         vector=embedding,
-                        text=text,
+                        text=symbol.to_rich_text(),
                         metadata={
                             "symbol_name": symbol.name,
                             "type": symbol.type.value,

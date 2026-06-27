@@ -1,5 +1,6 @@
 """DuckDB-based metadata store for symbols, dependencies, and commits."""
 
+import json
 from abc import ABC, abstractmethod
 from typing import List, Optional
 
@@ -320,11 +321,18 @@ class DuckDBMetadataStore(MetadataStore):
                 signature TEXT,
                 docstring TEXT,
                 parent_id VARCHAR,
+                metadata JSON,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """
         )
+
+        # Add metadata column to existing databases that pre-date this schema
+        try:
+            self.conn.execute("ALTER TABLE symbols ADD COLUMN IF NOT EXISTS metadata JSON")
+        except Exception:
+            pass  # DuckDB may not support IF NOT EXISTS for ALTER TABLE in older versions
 
         # Create indexes for symbols
         self.conn.execute("CREATE INDEX IF NOT EXISTS idx_symbols_name ON symbols(name)")
@@ -411,8 +419,8 @@ class DuckDBMetadataStore(MetadataStore):
             """
             INSERT OR REPLACE INTO symbols
             (id, name, type, file_path, language, start_line, end_line,
-             signature, docstring, parent_id, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+             signature, docstring, parent_id, metadata, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             """,
             [
                 symbol.id,
@@ -425,6 +433,7 @@ class DuckDBMetadataStore(MetadataStore):
                 symbol.signature,
                 symbol.docstring,
                 symbol.parent_id,
+                json.dumps(symbol.metadata) if symbol.metadata else None,
             ],
         )
         self.conn.commit()
@@ -446,6 +455,7 @@ class DuckDBMetadataStore(MetadataStore):
                 s.signature,
                 s.docstring,
                 s.parent_id,
+                json.dumps(s.metadata) if s.metadata else None,
             ]
             for s in symbols
         ]
@@ -454,19 +464,31 @@ class DuckDBMetadataStore(MetadataStore):
             """
             INSERT OR REPLACE INTO symbols
             (id, name, type, file_path, language, start_line, end_line,
-             signature, docstring, parent_id, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+             signature, docstring, parent_id, metadata, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             """,
             data,
         )
         self.conn.commit()
+
+    # Explicit column list used by all symbol SELECT queries.
+    # This order must match _row_to_symbol's positional reads.
+    # Using named columns instead of SELECT * means column order in the
+    # on-disk table (which varies between new and migrated databases)
+    # never affects deserialization.
+    _SYMBOL_COLUMNS = (
+        "id, name, type, file_path, language, start_line, end_line, "
+        "signature, docstring, parent_id, metadata"
+    )
 
     def get_symbol_by_id(self, symbol_id: str) -> Optional[Symbol]:
         """Retrieve a symbol by its unique identifier."""
         if self.conn is None:
             raise RuntimeError("Database not initialized")
 
-        result = self.conn.execute("SELECT * FROM symbols WHERE id = ?", [symbol_id]).fetchone()
+        result = self.conn.execute(
+            f"SELECT {self._SYMBOL_COLUMNS} FROM symbols WHERE id = ?", [symbol_id]
+        ).fetchone()
 
         if result is None:
             return None
@@ -480,10 +502,13 @@ class DuckDBMetadataStore(MetadataStore):
 
         if language:
             results = self.conn.execute(
-                "SELECT * FROM symbols WHERE name = ? AND language = ?", [name, language]
+                f"SELECT {self._SYMBOL_COLUMNS} FROM symbols WHERE name = ? AND language = ?",
+                [name, language],
             ).fetchall()
         else:
-            results = self.conn.execute("SELECT * FROM symbols WHERE name = ?", [name]).fetchall()
+            results = self.conn.execute(
+                f"SELECT {self._SYMBOL_COLUMNS} FROM symbols WHERE name = ?", [name]
+            ).fetchall()
 
         return [self._row_to_symbol(row) for row in results]
 
@@ -493,7 +518,8 @@ class DuckDBMetadataStore(MetadataStore):
             raise RuntimeError("Database not initialized")
 
         results = self.conn.execute(
-            "SELECT * FROM symbols WHERE file_path = ? ORDER BY start_line", [file_path]
+            f"SELECT {self._SYMBOL_COLUMNS} FROM symbols WHERE file_path = ? ORDER BY start_line",
+            [file_path],
         ).fetchall()
 
         return [self._row_to_symbol(row) for row in results]
@@ -754,8 +780,28 @@ class DuckDBMetadataStore(MetadataStore):
             self.conn = None
 
     def _row_to_symbol(self, row: tuple) -> Symbol:
-        """Convert a database row to a Symbol object."""
+        """Convert a database row to a Symbol object.
+
+        Expects exactly the columns listed in ``_SYMBOL_COLUMNS``:
+        id[0], name[1], type[2], file_path[3], language[4],
+        start_line[5], end_line[6], signature[7], docstring[8],
+        parent_id[9], metadata[10].
+        """
         from maris.core.models import SymbolType
+
+        # row[10] is always metadata because all callers use _SYMBOL_COLUMNS,
+        # not SELECT *.  It is NULL for rows that pre-date the metadata column.
+        raw_metadata = row[10]
+        metadata: dict = {}
+        if raw_metadata is not None:
+            try:
+                metadata = (
+                    json.loads(raw_metadata)
+                    if isinstance(raw_metadata, str)
+                    else dict(raw_metadata)
+                )
+            except (json.JSONDecodeError, TypeError, ValueError):
+                metadata = {}
 
         return Symbol(
             id=row[0],
@@ -768,6 +814,7 @@ class DuckDBMetadataStore(MetadataStore):
             signature=row[7],
             docstring=row[8],
             parent_id=row[9],
+            metadata=metadata,
         )
 
 

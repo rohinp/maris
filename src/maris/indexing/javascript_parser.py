@@ -5,7 +5,16 @@ from typing import List, Optional
 import tree_sitter
 import tree_sitter_javascript
 
-from maris.core.models import Dependency, Symbol, SymbolType
+from maris.core.models import (
+    METADATA_BODY_SUMMARY,
+    METADATA_CALLS,
+    METADATA_PARENT_NAME,
+    METADATA_RETURN_TYPE,
+    METADATA_SOURCE,
+    Dependency,
+    Symbol,
+    SymbolType,
+)
 from maris.indexing.parser import TreeSitterParser
 
 
@@ -55,7 +64,9 @@ class JavaScriptParser(TreeSitterParser):
                 symbols.append(symbol)
 
                 # Extract methods within the class
-                method_symbols = self._extract_methods(class_node, file_path, content, symbol.id)
+                method_symbols = self._extract_methods(
+                    class_node, file_path, content, symbol.id, parent_name=symbol.name
+                )
                 symbols.extend(method_symbols)
 
         # Extract top-level functions
@@ -146,7 +157,12 @@ class JavaScriptParser(TreeSitterParser):
         )
 
     def _extract_methods(
-        self, class_node: tree_sitter.Node, file_path: str, content: str, parent_id: str
+        self,
+        class_node: tree_sitter.Node,
+        file_path: str,
+        content: str,
+        parent_id: str,
+        parent_name: Optional[str] = None,
     ) -> List[Symbol]:
         """Extract method symbols from a class."""
         methods = []
@@ -156,14 +172,21 @@ class JavaScriptParser(TreeSitterParser):
 
         for child in body_node.children:
             if child.type == "method_definition":
-                method = self._extract_method(child, file_path, content, parent_id)
+                method = self._extract_method(
+                    child, file_path, content, parent_id, parent_name=parent_name
+                )
                 if method:
                     methods.append(method)
 
         return methods
 
     def _extract_method(
-        self, node: tree_sitter.Node, file_path: str, content: str, parent_id: str
+        self,
+        node: tree_sitter.Node,
+        file_path: str,
+        content: str,
+        parent_id: str,
+        parent_name: Optional[str] = None,
     ) -> Optional[Symbol]:
         """Extract a method symbol."""
         name_node = node.child_by_field_name("name")
@@ -177,6 +200,41 @@ class JavaScriptParser(TreeSitterParser):
         # Extract JSDoc comment
         docstring = self._extract_jsdoc(node, content)
 
+        # Return type annotation (JS has no type annotations but the field is
+        # harmless to query; always returns None for plain JS)
+        return_type = self.extract_return_type(node, content)
+
+        # Signature: name + parameters (+ return type if present)
+        params_node = node.child_by_field_name("parameters")
+        signature: Optional[str] = None
+        if params_node:
+            params_text = self.get_node_text(params_node, content)
+            signature = f"{method_name}{params_text}"
+            if return_type:
+                signature = f"{signature}: {return_type}"
+
+        # Calls + source from the method body
+        body_node = node.child_by_field_name("body")
+        calls: List[str] = []
+        source: Optional[str] = None
+        if body_node:
+            calls = self.extract_calls(body_node, content)
+            source = self.get_node_text(node, content)
+
+        # Build metadata
+        body_summary = self.body_summary_from_docstring(docstring)
+        metadata = {}
+        if parent_name:
+            metadata[METADATA_PARENT_NAME] = parent_name
+        if return_type:
+            metadata[METADATA_RETURN_TYPE] = return_type
+        if calls:
+            metadata[METADATA_CALLS] = calls
+        if source:
+            metadata[METADATA_SOURCE] = source
+        if body_summary:
+            metadata[METADATA_BODY_SUMMARY] = body_summary
+
         symbol_id = self.generate_symbol_id(file_path, method_name, start_line)
 
         return Symbol(
@@ -187,8 +245,10 @@ class JavaScriptParser(TreeSitterParser):
             language=self.language,
             start_line=start_line,
             end_line=end_line,
+            signature=signature,
             docstring=docstring,
             parent_id=parent_id,
+            metadata=metadata,
         )
 
     def _extract_top_level_functions(
@@ -225,6 +285,38 @@ class JavaScriptParser(TreeSitterParser):
         # Extract JSDoc comment
         docstring = self._extract_jsdoc(node, content)
 
+        # Return type annotation (none in plain JS, always None)
+        return_type = self.extract_return_type(node, content)
+
+        # Signature
+        params_node = node.child_by_field_name("parameters")
+        signature: Optional[str] = None
+        if params_node:
+            params_text = self.get_node_text(params_node, content)
+            signature = f"{func_name}{params_text}"
+            if return_type:
+                signature = f"{signature}: {return_type}"
+
+        # Calls + source from body
+        body_node = node.child_by_field_name("body")
+        calls: List[str] = []
+        source: Optional[str] = None
+        if body_node:
+            calls = self.extract_calls(body_node, content)
+            source = self.get_node_text(node, content)
+
+        # Build metadata
+        body_summary = self.body_summary_from_docstring(docstring)
+        metadata = {}
+        if return_type:
+            metadata[METADATA_RETURN_TYPE] = return_type
+        if calls:
+            metadata[METADATA_CALLS] = calls
+        if source:
+            metadata[METADATA_SOURCE] = source
+        if body_summary:
+            metadata[METADATA_BODY_SUMMARY] = body_summary
+
         symbol_id = self.generate_symbol_id(file_path, func_name, start_line)
 
         return Symbol(
@@ -235,7 +327,9 @@ class JavaScriptParser(TreeSitterParser):
             language=self.language,
             start_line=start_line,
             end_line=end_line,
+            signature=signature,
             docstring=docstring,
+            metadata=metadata,
         )
 
     def _extract_arrow_function(
@@ -256,6 +350,29 @@ class JavaScriptParser(TreeSitterParser):
                     # Extract JSDoc comment
                     docstring = self._extract_jsdoc(node, content)
 
+                    # Signature: name + parameters
+                    params_node = value_node.child_by_field_name("parameters")
+                    signature: Optional[str] = None
+                    if params_node:
+                        params_text = self.get_node_text(params_node, content)
+                        signature = f"{func_name}{params_text}"
+
+                    # Calls + source from arrow function body
+                    body_node = value_node.child_by_field_name("body")
+                    calls: List[str] = []
+                    source = self.get_node_text(node, content)
+                    if body_node:
+                        calls = self.extract_calls(body_node, content)
+
+                    body_summary = self.body_summary_from_docstring(docstring)
+                    metadata = {}
+                    if calls:
+                        metadata[METADATA_CALLS] = calls
+                    if source:
+                        metadata[METADATA_SOURCE] = source
+                    if body_summary:
+                        metadata[METADATA_BODY_SUMMARY] = body_summary
+
                     symbol_id = self.generate_symbol_id(file_path, func_name, start_line)
 
                     return Symbol(
@@ -266,7 +383,9 @@ class JavaScriptParser(TreeSitterParser):
                         language=self.language,
                         start_line=start_line,
                         end_line=end_line,
+                        signature=signature,
                         docstring=docstring,
+                        metadata=metadata,
                     )
         return None
 
@@ -471,10 +590,14 @@ class JavaScriptParser(TreeSitterParser):
             # Get superclass
             heritage_node = class_node.child_by_field_name("heritage")
             if not heritage_node:
+                heritage_node = next(
+                    (child for child in class_node.children if child.type == "class_heritage"),
+                    None,
+                )
+            if not heritage_node:
                 continue
 
             # Find the class symbol
-            class_line = self.get_line_number(class_node)
             from_symbol = None
             for symbol in symbols:
                 if symbol.name == class_name and symbol.type == SymbolType.CLASS:
