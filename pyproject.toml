@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "maris"
-version = "0.2.0"
+version = "0.2.1"
 description = "Local Multi-Agent Repository Intelligence System"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -46,7 +46,7 @@ dependencies = [
     "langchain>=0.1.0",
     "langchain-community>=0.0.20",
     "langgraph>=0.0.20",
-    "ollama>=0.1.0",
+    "ollama>=0.4.0",
 
     # Utilities
     "pydantic>=2.5.0",

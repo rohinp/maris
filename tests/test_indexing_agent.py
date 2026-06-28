@@ -428,7 +428,11 @@ class TestStoreEmbeddingsNode:
         result = indexing_agent._store_embeddings(state)
 
         assert result["embeddings_stored"] == 2
-        assert mock_vector_store.insert_embedding.call_count == 2
+        mock_vector_store.insert_embeddings.assert_called_once()
+        batch = mock_vector_store.insert_embeddings.call_args[0][0]
+        assert len(batch) == 2
+        assert batch[0]["symbol_id"] == sample_symbols[0].id
+        assert batch[1]["symbol_id"] == sample_symbols[1].id
 
     def test_store_embeddings_with_no_embeddings(
         self, indexing_agent, mock_vector_store, sample_symbols
@@ -442,7 +446,7 @@ class TestStoreEmbeddingsNode:
         result = indexing_agent._store_embeddings(state)
 
         assert result["embeddings_stored"] == 0
-        mock_vector_store.insert_embedding.assert_not_called()
+        mock_vector_store.insert_embeddings.assert_not_called()
 
     def test_store_embeddings_skips_on_error(self, indexing_agent):
         """Test that storage is skipped if there's a previous error."""
@@ -460,7 +464,7 @@ class TestStoreEmbeddingsNode:
         self, indexing_agent, mock_vector_store, sample_symbols
     ):
         """Test handling of embedding storage errors."""
-        mock_vector_store.insert_embedding.side_effect = Exception("Storage failed")
+        mock_vector_store.insert_embeddings.side_effect = Exception("Storage failed")
         embeddings = [[0.1] * 768, [0.2] * 768]
 
         state = {

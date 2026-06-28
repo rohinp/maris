@@ -418,20 +418,23 @@ class IndexingAgent:
             embeddings = state.get("embeddings", [])
 
             if symbols and embeddings and len(symbols) == len(embeddings):
-                # Store embeddings — text must match what was passed to the
-                # embedding model so that LanceDB's text column stays in sync.
-                for symbol, embedding in zip(symbols, embeddings):
-                    self.vector_store.insert_embedding(
-                        symbol_id=symbol.id,
-                        vector=embedding,
-                        text=symbol.to_rich_text(),
-                        metadata={
+                # Store embeddings in a single batch — text must match what was
+                # passed to the embedding model so LanceDB's text column stays in sync.
+                batch = [
+                    {
+                        "symbol_id": symbol.id,
+                        "vector": embedding,
+                        "text": symbol.to_rich_text(),
+                        "metadata": {
                             "symbol_name": symbol.name,
                             "type": symbol.type.value,
                             "file": symbol.file_path,
                             "language": symbol.language,
                         },
-                    )
+                    }
+                    for symbol, embedding in zip(symbols, embeddings)
+                ]
+                self.vector_store.insert_embeddings(batch)
 
                 state["embeddings_stored"] = len(embeddings)
                 logger.info(f"Stored {len(embeddings)} embeddings")
