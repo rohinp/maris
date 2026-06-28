@@ -1,6 +1,7 @@
 """Orchestrator Agent - LangGraph-based multi-agent coordinator for MARIS."""
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
@@ -19,6 +20,8 @@ from maris.storage.metadata_store import MetadataStore
 from maris.storage.vector_store import VectorStore
 
 logger = logging.getLogger(__name__)
+
+ProgressCallback = Callable[[int, int], None]
 
 
 class TaskType(Enum):
@@ -335,6 +338,16 @@ class OrchestratorAgent:
                 )
 
             elif selected_agent == "indexing_agent":
+                progress_kwargs = {}
+                if state.get("parse_progress_callback") is not None:
+                    progress_kwargs["parse_progress_callback"] = state.get(
+                        "parse_progress_callback"
+                    )
+                if state.get("embedding_progress_callback") is not None:
+                    progress_kwargs["embedding_progress_callback"] = state.get(
+                        "embedding_progress_callback"
+                    )
+
                 if task_type == TaskType.STATUS:
                     result = self.indexing_agent.get_indexing_status()
                 elif task_type == TaskType.CLEAR_INDEX:
@@ -345,7 +358,10 @@ class OrchestratorAgent:
                     state["changeset"] = changeset
                     if changeset.has_changes:
                         logger.info(f"Incremental indexing {changeset.total_changes} changed files")
-                        result = self.indexing_agent.index_files(changeset.files_to_reindex)
+                        result = self.indexing_agent.index_files(
+                            changeset.files_to_reindex,
+                            **progress_kwargs,
+                        )
                         # Save current commit after successful indexing (no errors)
                         if len(result.errors) == 0:
                             self.git_agent.save_current_commit()
@@ -363,9 +379,14 @@ class OrchestratorAgent:
                     # Check if specific files or full repository
                     file_paths = state.get("file_paths")
                     if file_paths:
-                        result = self.indexing_agent.index_files(file_paths)
+                        result = self.indexing_agent.index_files(
+                            file_paths,
+                            **progress_kwargs,
+                        )
                     else:
-                        result = self.indexing_agent.index_repository()
+                        result = self.indexing_agent.index_repository(
+                            **progress_kwargs,
+                        )
                         # Save current commit after successful full indexing (no errors)
                         if len(result.errors) == 0:
                             self.git_agent.save_current_commit()
@@ -476,6 +497,8 @@ class OrchestratorAgent:
         analysis_type: Optional[str] = None,
         max_results: int = 20,
         max_symbols: int = 10,
+        parse_progress_callback: Optional[ProgressCallback] = None,
+        embedding_progress_callback: Optional[ProgressCallback] = None,
     ) -> OrchestratorResult:
         """
         Execute a request by routing to the appropriate agent.
@@ -490,6 +513,8 @@ class OrchestratorAgent:
             analysis_type: Optional analysis type for impact analysis
             max_results: Maximum search results for search tasks
             max_symbols: Maximum symbols for Q&A context retrieval
+            parse_progress_callback: Optional callback called as files are parsed
+            embedding_progress_callback: Optional callback called as embeddings are generated
 
         Returns:
             OrchestratorResult with execution details
@@ -507,6 +532,8 @@ class OrchestratorAgent:
             "analysis_type": analysis_type,
             "max_results": max_results,
             "max_symbols": max_symbols,
+            "parse_progress_callback": parse_progress_callback,
+            "embedding_progress_callback": embedding_progress_callback,
             "classified_task": None,
             "selected_agent": None,
             "execution_result": None,
@@ -577,20 +604,34 @@ class OrchestratorAgent:
         else:
             raise Exception(f"Failed to search symbols: {result.error}")
 
-    def index_repository(self) -> IndexingResult:
+    def index_repository(
+        self,
+        parse_progress_callback: Optional[ProgressCallback] = None,
+        embedding_progress_callback: Optional[ProgressCallback] = None,
+    ) -> IndexingResult:
         """
         Index the entire repository.
 
         Returns:
             IndexingResult with statistics
         """
-        result = self.execute("Index repository", task_type="index")
+        result = self.execute(
+            "Index repository",
+            task_type="index",
+            parse_progress_callback=parse_progress_callback,
+            embedding_progress_callback=embedding_progress_callback,
+        )
         if result.success:
             return result.result
         else:
             raise Exception(f"Failed to index repository: {result.error}")
 
-    def index_files(self, file_paths: List[str]) -> IndexingResult:
+    def index_files(
+        self,
+        file_paths: List[str],
+        parse_progress_callback: Optional[ProgressCallback] = None,
+        embedding_progress_callback: Optional[ProgressCallback] = None,
+    ) -> IndexingResult:
         """
         Index specific files.
 
@@ -600,7 +641,13 @@ class OrchestratorAgent:
         Returns:
             IndexingResult with statistics
         """
-        result = self.execute("Index files", task_type="index", file_paths=file_paths)
+        result = self.execute(
+            "Index files",
+            task_type="index",
+            file_paths=file_paths,
+            parse_progress_callback=parse_progress_callback,
+            embedding_progress_callback=embedding_progress_callback,
+        )
         if result.success:
             return result.result
         else:

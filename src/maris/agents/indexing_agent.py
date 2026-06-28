@@ -4,6 +4,7 @@ import hashlib
 import logging
 import os
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -16,6 +17,8 @@ from maris.storage.metadata_store import MetadataStore
 from maris.storage.vector_store import VectorStore
 
 logger = logging.getLogger(__name__)
+
+ProgressCallback = Callable[[int, int], None]
 
 
 class IndexingAgent:
@@ -231,8 +234,10 @@ class IndexingAgent:
             files_to_index = state.get("files_to_index", [])
             all_symbols = []
             parse_errors = []
+            parse_progress_callback = state.get("parse_progress_callback")
+            total_files = len(files_to_index)
 
-            for file_path in files_to_index:
+            for processed_count, file_path in enumerate(files_to_index, start=1):
                 try:
                     # Detect language
                     language = self._detect_language(file_path)
@@ -275,6 +280,9 @@ class IndexingAgent:
                 except Exception as e:
                     parse_errors.append(f"{file_path}: {str(e)}")
                     logger.error(f"Error parsing {file_path}: {e}", exc_info=True)
+                finally:
+                    if parse_progress_callback:
+                        parse_progress_callback(processed_count, total_files)
 
             state["extracted_symbols"] = all_symbols
             state["parse_errors"] = parse_errors
@@ -355,10 +363,13 @@ class IndexingAgent:
 
                 # Track progress
                 state["embedding_progress"] = {"current": 0, "total": len(symbols)}
+                embedding_progress_callback = state.get("embedding_progress_callback")
 
                 def progress_callback(current: int, total: int) -> None:
                     """Update progress in state."""
                     state["embedding_progress"] = {"current": current, "total": total}
+                    if embedding_progress_callback:
+                        embedding_progress_callback(current, total)
                     if current % 100 == 0 or current == total:
                         logger.info(
                             f"Embedding progress: {current}/{total} ({current*100//total}%)"
@@ -498,9 +509,17 @@ class IndexingAgent:
 
         return state
 
-    def index_repository(self) -> IndexingResult:
+    def index_repository(
+        self,
+        parse_progress_callback: Optional[ProgressCallback] = None,
+        embedding_progress_callback: Optional[ProgressCallback] = None,
+    ) -> IndexingResult:
         """
         Perform full repository indexing.
+
+        Args:
+            parse_progress_callback: Optional callback called as files are parsed
+            embedding_progress_callback: Optional callback called as embeddings are generated
 
         Returns:
             IndexingResult with statistics and any errors
@@ -522,6 +541,8 @@ class IndexingAgent:
             "symbols_stored": 0,
             "embeddings_stored": 0,
             "error": None,
+            "parse_progress_callback": parse_progress_callback,
+            "embedding_progress_callback": embedding_progress_callback,
         }
 
         # Run the workflow
@@ -545,12 +566,19 @@ class IndexingAgent:
         logger.info(f"Repository indexing completed in {duration:.2f}s")
         return result
 
-    def index_files(self, file_paths: List[str]) -> IndexingResult:
+    def index_files(
+        self,
+        file_paths: List[str],
+        parse_progress_callback: Optional[ProgressCallback] = None,
+        embedding_progress_callback: Optional[ProgressCallback] = None,
+    ) -> IndexingResult:
         """
         Index specific files (for incremental updates).
 
         Args:
             file_paths: List of file paths relative to repository root
+            parse_progress_callback: Optional callback called as files are parsed
+            embedding_progress_callback: Optional callback called as embeddings are generated
 
         Returns:
             IndexingResult with statistics and any errors
@@ -584,6 +612,8 @@ class IndexingAgent:
             "symbols_stored": 0,
             "embeddings_stored": 0,
             "error": None,
+            "parse_progress_callback": parse_progress_callback,
+            "embedding_progress_callback": embedding_progress_callback,
         }
 
         # Run the workflow

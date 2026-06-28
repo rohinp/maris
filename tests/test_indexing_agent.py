@@ -1,7 +1,7 @@
 """Tests for Indexing Agent with LangGraph workflow."""
 
 from pathlib import Path
-from unittest.mock import ANY, Mock, patch
+from unittest.mock import ANY, Mock, call, patch
 
 import pytest
 
@@ -252,6 +252,18 @@ class TestParseFilesNode:
         assert len(result["parse_errors"]) == 1
         assert "nonexistent.py" in result["parse_errors"][0]
 
+    def test_parse_files_reports_progress_for_each_file(self, indexing_agent):
+        """Test parsing progress is reported as each file is processed."""
+        progress_callback = Mock()
+        state = {
+            "files_to_index": ["main.py", "nonexistent.py", "utils.py"],
+            "parse_progress_callback": progress_callback,
+        }
+
+        indexing_agent._parse_files(state)
+
+        assert progress_callback.call_args_list == [call(1, 3), call(2, 3), call(3, 3)]
+
 
 # Test: Node - store_symbols
 class TestStoreSymbolsNode:
@@ -375,6 +387,29 @@ class TestGenerateEmbeddingsNode:
         assert result["embeddings"] == []
         assert result["embeddings_generated"] == 0
         assert "embedding_error" in result
+
+    def test_generate_embeddings_forwards_progress_callback(
+        self, indexing_agent, mock_embedding_service, sample_symbols
+    ):
+        """Test embedding progress is forwarded to the caller."""
+        external_progress_callback = Mock()
+
+        def embed_symbols(symbols, progress_callback=None):
+            progress_callback(1, len(symbols))
+            progress_callback(len(symbols), len(symbols))
+            return [[0.1] * 768 for _ in symbols]
+
+        mock_embedding_service.embed_symbols.side_effect = embed_symbols
+
+        state = {
+            "extracted_symbols": sample_symbols,
+            "embedding_progress_callback": external_progress_callback,
+        }
+
+        result = indexing_agent._generate_embeddings(state)
+
+        assert result["embeddings_generated"] == 2
+        assert external_progress_callback.call_args_list == [call(1, 2), call(2, 2)]
 
 
 # Test: Node - store_embeddings

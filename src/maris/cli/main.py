@@ -312,15 +312,28 @@ def index(
                 "[green]Generating embeddings...", total=None, visible=False
             )
 
+            def update_parse_progress(current: int, total: int) -> None:
+                progress.update(parse_task, total=total, completed=current)
+
+            def update_embedding_progress(current: int, total: int) -> None:
+                progress.update(
+                    embed_task,
+                    total=total,
+                    completed=current,
+                    visible=True,
+                )
+
             # Start indexing
             result = ctx.orchestrator.execute(
                 request="Index files",
                 task_type="index",
                 file_paths=files_to_index,
+                parse_progress_callback=update_parse_progress,
+                embedding_progress_callback=update_embedding_progress,
             )
 
-            # Mark parsing as complete
-            progress.update(parse_task, completed=len(files_to_index))
+            # Ensure completed tasks show their final state before the progress exits.
+            progress.update(parse_task, total=len(files_to_index), completed=len(files_to_index))
 
             # Show embedding progress if available
             if result.success and result.result:
